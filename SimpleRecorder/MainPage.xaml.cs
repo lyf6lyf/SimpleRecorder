@@ -112,8 +112,9 @@ namespace SimpleRecorder
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new Encoder(_device, item))
+                using (_encoder = new Encoder(_device, item, _mp3File))
                 {
+                    await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
                         stream, 
                         width, height, bitrate, 
@@ -283,5 +284,18 @@ namespace SimpleRecorder
 
         private IDirect3DDevice _device;
         private Encoder _encoder;
+        private StorageFile _mp3File;
+
+        private async void PickAudioFile(object sender, RoutedEventArgs e)
+        {
+            FileOpenPicker filePicker = new FileOpenPicker();
+            filePicker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
+            filePicker.FileTypeFilter.Add(".mp3");
+            filePicker.ViewMode = PickerViewMode.List;
+
+            _mp3File = await filePicker.PickSingleFileAsync();
+
+            audioName.Text = _mp3File.Name;
+        }
     }
 }
