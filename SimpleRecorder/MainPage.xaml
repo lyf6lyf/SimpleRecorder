@@ -45,9 +45,7 @@
         </Grid>
 
         <Grid Grid.Column="1">
-            <StackPanel
-                HorizontalAlignment="Center"
-                VerticalAlignment="Center">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center">
                 <TextBlock
                     x:Name="MainTextBlock"
                     HorizontalAlignment="Stretch"
@@ -65,9 +63,12 @@
                     Unchecked="ToggleButton_Unchecked">
                     <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE722;" />
                 </ToggleButton>
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                    <Button Click="StartCaptureAudio">Start Capture Audio</Button>
-                    <Button Click="StopCaptureAudio">Stop Capture Audio</Button>
+                <StackPanel
+                    Margin="0,20,0,0"
+                    Orientation="Horizontal"
+                    Spacing="4">
+                    <!--<Button Click="StartCaptureAudio">Start Capture Audio</Button>
+                    <Button Click="StopCaptureAudio">Stop Capture Audio</Button>-->
                     <Button x:Name="muteButton" Click="ToggleMute">Mute/Unmute</Button>
                 </StackPanel>
             </StackPanel>

@@ -26,12 +26,12 @@ namespace CaptureEncoder
             _profile = profile;
         }
 
-        public IAsyncAction EncodeAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate)
+        public IAsyncAction EncodeAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate, MediaEncodingProfile videoProfile)
         {
-            return EncodeInternalAsync(stream, width, height, bitrateInBps, frameRate).AsAsyncAction();
+            return EncodeInternalAsync(stream, width, height, bitrateInBps, frameRate, videoProfile).AsAsyncAction();
         }
 
-        private async Task EncodeInternalAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate)
+        private async Task EncodeInternalAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate, MediaEncodingProfile videoProfile)
         {
             if (!_isRecording)
             {
@@ -46,15 +46,15 @@ namespace CaptureEncoder
                 {
                     var encodingProfile = new MediaEncodingProfile();
                     encodingProfile.Container.Subtype = "MPEG4";
-                    encodingProfile.Video.Subtype = "H264";
-                    encodingProfile.Video.Width = width;
-                    encodingProfile.Video.Height = height;
-                    encodingProfile.Video.Bitrate = bitrateInBps;
+                    //encodingProfile.Video.Subtype = "H264";
+                    //encodingProfile.Video.Width = width;
+                    //encodingProfile.Video.Height = height;
+                    //encodingProfile.Video.Bitrate = bitrateInBps;
                     encodingProfile.Video.FrameRate.Numerator = frameRate;
                     encodingProfile.Video.FrameRate.Denominator = 1;
-                    encodingProfile.Video.PixelAspectRatio.Numerator = 1;
-                    encodingProfile.Video.PixelAspectRatio.Denominator = 1;
-                    encodingProfile.Audio.Subtype = "MP3";
+                    //encodingProfile.Video.PixelAspectRatio.Numerator = 1;
+                    //encodingProfile.Video.PixelAspectRatio.Denominator = 1;
+                    encodingProfile.Video = videoProfile.Video;
                     encodingProfile.Audio = _audioDescriptor.EncodingProperties;
                     var transcode = await _transcoder.PrepareMediaStreamSourceTranscodeAsync(_mediaStreamSource, stream, encodingProfile);
 
@@ -89,7 +89,7 @@ namespace CaptureEncoder
             return CreateMediaObjectsInternal().AsAsyncAction();
         }
 
-        private async Task CreateMediaObjectsInternal()
+        private Task CreateMediaObjectsInternal()
         {
             // Create our encoding profile based on the size of the item
             int width = _captureItem.Size.Width;
@@ -99,7 +99,7 @@ namespace CaptureEncoder
             var videoProperties = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)width, (uint)height);
             _videoDescriptor = new VideoStreamDescriptor(videoProperties);
 
-            AudioEncodingProperties audioProps = AudioEncodingProperties.CreateMp3(_profile.Audio.SampleRate, _profile.Audio.ChannelCount, _profile.Audio.Bitrate);
+            AudioEncodingProperties audioProps = _profile.Audio;
             _audioDescriptor = new AudioStreamDescriptor(audioProps);
 
 
@@ -112,6 +112,8 @@ namespace CaptureEncoder
             // Create our transcoder
             _transcoder = new MediaTranscoder();
             _transcoder.HardwareAccelerationEnabled = true;
+
+            return Task.CompletedTask;
         }
 
         private async void OnMediaStreamSourceSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
@@ -140,50 +142,48 @@ namespace CaptureEncoder
                     }
                     else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
                     {
-                        uint unitSampleSize = _audioDescriptor.EncodingProperties.Bitrate / 8 / 10;
-                        var unitSampleDuration = new TimeSpan(0, 0, 0, 0, 100);
+                        uint sampleSize = _audioDescriptor.EncodingProperties.Bitrate / 8 / 10;
+                        var sampleDuration = new TimeSpan(0, 0, 0, 0, 100);
 
-                        uint sampleSize;
-                        TimeSpan sampleDuration;
-                        var streamSize = _audioStream.Size;
-                        if (_audioByteOffset + unitSampleSize <= streamSize)
+                        MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
+
+                        var count = 0;
+                        while (_audioByteOffset + sampleSize > _audioStream.Size)
                         {
-                            sampleSize = unitSampleSize;
-                            sampleDuration = unitSampleDuration;
+                            Debug.WriteLine("audio stream size: " + _audioStream.Size);
+
+                            await Task.Delay(sampleDuration);
+                            if (count++ > 5)
+                            {
+                                throw new Exception("audio size is not enough");
+                            }
                         }
-                        else
-                        {
-                            sampleSize = (uint)(streamSize - _audioByteOffset);
-                            sampleDuration = sampleSize / unitSampleSize * unitSampleDuration;
-                        }
 
-                        if (sampleSize > -1)
-                        {
-                            MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
-                            var inputStream = _audioStream.GetInputStreamAt(_audioByteOffset);
+                        var inputStream = _audioStream.GetInputStreamAt(_audioByteOffset);
 
-                            // create the MediaStreamSample and assign to the request object. 
-                            // You could also create the MediaStreamSample using createFromBuffer(...)
+                        // create the MediaStreamSample and assign to the request object. 
+                        // You could also create the MediaStreamSample using createFromBuffer(...)
 
-                            MediaStreamSample sample = await MediaStreamSample.CreateFromStreamAsync(inputStream, sampleSize, _audioTimeOffset);
+                        MediaStreamSample sample = await MediaStreamSample.CreateFromStreamAsync(inputStream, sampleSize, _audioTimeOffset);
 
-                            Debug.WriteLine("audio frame " + _audioTimeOffset + " " + sample.Timestamp);
+                        //if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
+                        //{
+                        //    IBuffer buffer = new Windows.Storage.Streams.Buffer(sampleSize);
+                            
+                        //    //IBuffer bufferObj = await inputStream.ReadAsync(_buffer, sampleSize, InputStreamOptions.None);
+                        //    sample = MediaStreamSample.CreateFromBuffer(buffer, _audioTimeOffset);
+                        //}
+                        Debug.WriteLine("audio frame " + _audioTimeOffset + " " + sample.Timestamp);
 
-                            sample.Duration = sampleDuration;
-                            sample.KeyFrame = true;
+                        sample.Duration = sampleDuration;
+                        sample.KeyFrame = true;
 
-                            // increment the time and byte offset
+                        // increment the time and byte offset
 
-                            _audioByteOffset += sampleSize;
-                            _audioTimeOffset = _audioTimeOffset.Add(sampleDuration);
-                            args.Request.Sample = sample;
-                            deferal.Complete();
-                        }
-                        else
-                        {
-                            args.Request.Sample = null;
-                            DisposeInternal();
-                        }
+                        _audioByteOffset += sampleSize;
+                        _audioTimeOffset = _audioTimeOffset.Add(sampleDuration);
+                        args.Request.Sample = sample;
+                        deferal.Complete();
                     }
                 }
                 catch (Exception e)

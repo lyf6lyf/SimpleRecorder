@@ -22,6 +22,7 @@ using Windows.Foundation;
 using Windows.Media.Capture;
 using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
+using System.Runtime.InteropServices.WindowsRuntime;
 
 namespace SimpleRecorder
 {
@@ -74,10 +75,10 @@ namespace SimpleRecorder
             var quality = (VideoEncodingQuality)Enum.Parse(typeof(VideoEncodingQuality), (string)QualityComboBox.SelectedItem, false);
             var useSourceSize = UseCaptureItemSizeCheckBox.IsChecked.Value;
 
-            var temp = MediaEncodingProfile.CreateMp4(quality);
-            var bitrate = temp.Video.Bitrate;
-            var width = temp.Video.Width;
-            var height = temp.Video.Height;
+            var videoProfile = MediaEncodingProfile.CreateMp4(quality);
+            var bitrate = videoProfile.Video.Bitrate;
+            var width = videoProfile.Video.Width;
+            var height = videoProfile.Video.Height;
 
             // Get our capture item
             var picker = new GraphicsCapturePicker();
@@ -121,9 +122,9 @@ namespace SimpleRecorder
                 await mediaCapture.InitializeAsync(settings);
             }
             var audioStream = new InMemoryRandomAccessStream();
-            var profile = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
+            var audioProfile = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
             _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
-                profile,
+                audioProfile,
                 audioStream);
             await _mediaRecording.StartAsync();
 
@@ -131,13 +132,11 @@ namespace SimpleRecorder
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new EncoderWithAudioStream(_device, item, audioStream, profile))
+                using (_encoder = new EncoderWithAudioStream(_device, item, audioStream, audioProfile))
                 {
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
-                        stream, 
-                        width, height, bitrate, 
-                        frameRate);
+                        stream, width, height, bitrate, frameRate, videoProfile);
                 }
                 MainTextBlock.Foreground = originalBrush;
             }
@@ -192,10 +191,14 @@ namespace SimpleRecorder
             await Launcher.LaunchFileAsync(newFile);
         }
 
-        private void ToggleButton_Unchecked(object sender, RoutedEventArgs e)
+        private async void ToggleButton_Unchecked(object sender, RoutedEventArgs e)
         {
             // If the encoder is doing stuff, tell it to stop
             _encoder?.Dispose();
+
+            await _mediaRecording.StopAsync();
+            await _mediaRecording.FinishAsync();
+            _mediaRecording = null;
         }
 
         private async Task<StorageFile> PickVideoAsync()
@@ -332,31 +335,36 @@ namespace SimpleRecorder
                 };
                 await mediaCapture.InitializeAsync(settings);
             }
+            mediaCapture.AudioDeviceController.Muted = true;
 
             //var localFolder = Windows.Storage.ApplicationData.Current.LocalFolder;
             //StorageFile file = await localFolder.CreateFileAsync("audio.mp3", CreationCollisionOption.GenerateUniqueName);
             //_mediaRecording = await mediaCapture.PrepareLowLagRecordToStorageFileAsync(
             //    MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High), file);
+            //await _mediaRecording.StartAsync();
 
             var stream = new InMemoryRandomAccessStream();
-            var property = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
+            var property = MediaEncodingProfile.CreateWav(AudioEncodingQuality.Medium);
             _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
                 property,
                 stream);
             await _mediaRecording.StartAsync();
 
-            while (true)
-            {
-                Debug.WriteLine(stream.Size);
+            await Task.Delay(5000);
 
-                await Task.Delay(1000);
-            }
+            var inputStream = stream.GetInputStreamAt(0);
+            IBuffer buffer = new Windows.Storage.Streams.Buffer((uint)stream.Size);
+            await inputStream.ReadAsync(buffer, (uint)stream.Size, InputStreamOptions.None);
+
+            var bytes = new byte[stream.Size];
+            buffer.CopyTo(bytes);
         }
 
         private async void StopCaptureAudio(object sender, RoutedEventArgs e)
         {
             if (_mediaRecording != null)
             {
+                // await _mediaRecording.StopAsync();
                 await _mediaRecording.FinishAsync();
             }
         }
