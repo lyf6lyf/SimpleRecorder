@@ -16,14 +16,14 @@ using Windows.Storage.Streams;
 
 namespace CaptureEncoder
 {
-    public sealed class Encoder : IDisposable
+    public sealed class EncoderWithAudioStream : IDisposable
     {
-        public Encoder(IDirect3DDevice device, GraphicsCaptureItem item, StorageFile mp3)
+        public EncoderWithAudioStream(IDirect3DDevice device, GraphicsCaptureItem item, InMemoryRandomAccessStream audioStream, MediaEncodingProfile profile)
         {
             _device = device;
             _captureItem = item;
-            _isRecording = false;
-            _inputMP3File = mp3;
+            _audioStream = audioStream;
+            _profile = profile;
         }
 
         public IAsyncAction EncodeAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate)
@@ -99,26 +99,13 @@ namespace CaptureEncoder
             var videoProperties = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)width, (uint)height);
             _videoDescriptor = new VideoStreamDescriptor(videoProperties);
 
-            List<string> encodingPropertiesToRetrieve = new List<string>();
-
-            encodingPropertiesToRetrieve.Add("System.Audio.SampleRate");
-            encodingPropertiesToRetrieve.Add("System.Audio.ChannelCount");
-            encodingPropertiesToRetrieve.Add("System.Audio.EncodingBitrate");
-
-            IDictionary<string, object> encodingProperties = await _inputMP3File.Properties.RetrievePropertiesAsync(encodingPropertiesToRetrieve);
-
-            var sampleRate = (uint)encodingProperties["System.Audio.SampleRate"];
-            var channelCount = (uint)encodingProperties["System.Audio.ChannelCount"];
-            var bitRate = (uint)encodingProperties["System.Audio.EncodingBitrate"];
-
-            AudioEncodingProperties audioProps = AudioEncodingProperties.CreateMp3(sampleRate, channelCount, bitRate);
+            AudioEncodingProperties audioProps = AudioEncodingProperties.CreateMp3(_profile.Audio.SampleRate, _profile.Audio.ChannelCount, _profile.Audio.Bitrate);
             _audioDescriptor = new AudioStreamDescriptor(audioProps);
 
-            audioStream = await _inputMP3File.OpenAsync(FileAccessMode.Read);
 
             // Create our MediaStreamSource
             _mediaStreamSource = new MediaStreamSource(_videoDescriptor, _audioDescriptor);
-            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(0);
+            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(3);
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
 
@@ -153,12 +140,27 @@ namespace CaptureEncoder
                     }
                     else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
                     {
-                        uint sampleSize = _audioDescriptor.EncodingProperties.Bitrate / 8 / 10;
-                        var sampleDuration = new TimeSpan(0, 0, 0, 0, 100);
-                        if (_audioByteOffset + sampleSize <= audioStream.Size)
+                        uint unitSampleSize = _audioDescriptor.EncodingProperties.Bitrate / 8 / 10;
+                        var unitSampleDuration = new TimeSpan(0, 0, 0, 0, 100);
+
+                        uint sampleSize;
+                        TimeSpan sampleDuration;
+                        var streamSize = _audioStream.Size;
+                        if (_audioByteOffset + unitSampleSize <= streamSize)
+                        {
+                            sampleSize = unitSampleSize;
+                            sampleDuration = unitSampleDuration;
+                        }
+                        else
+                        {
+                            sampleSize = (uint)(streamSize - _audioByteOffset);
+                            sampleDuration = sampleSize / unitSampleSize * unitSampleDuration;
+                        }
+
+                        if (sampleSize > -1)
                         {
                             MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
-                            var inputStream = audioStream.GetInputStreamAt(_audioByteOffset);
+                            var inputStream = _audioStream.GetInputStreamAt(_audioByteOffset);
 
                             // create the MediaStreamSample and assign to the request object. 
                             // You could also create the MediaStreamSample using createFromBuffer(...)
@@ -223,10 +225,10 @@ namespace CaptureEncoder
         private bool _isRecording;
         private bool _closed = false;
 
-        private StorageFile _inputMP3File;
         private TimeSpan _audioTimeOffset;
         private ulong _audioByteOffset;
-        private IRandomAccessStream audioStream;
         private AudioStreamDescriptor _audioDescriptor;
+        private readonly InMemoryRandomAccessStream _audioStream;
+        private readonly MediaEncodingProfile _profile;
     }
 }

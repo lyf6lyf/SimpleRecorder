@@ -19,6 +19,8 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.Media.Capture;
+using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
 
 namespace SimpleRecorder
@@ -108,11 +110,28 @@ namespace SimpleRecorder
             MainTextBlock.Foreground = new SolidColorBrush(Colors.Red);
             MainProgressBar.IsIndeterminate = true;
 
+
+            if (mediaCapture == null)
+            {
+                mediaCapture = new MediaCapture();
+                var settings = new MediaCaptureInitializationSettings
+                {
+                    StreamingCaptureMode = StreamingCaptureMode.Audio,
+                };
+                await mediaCapture.InitializeAsync(settings);
+            }
+            var audioStream = new InMemoryRandomAccessStream();
+            var profile = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
+            _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
+                profile,
+                audioStream);
+            await _mediaRecording.StartAsync();
+
             // Kick off the encoding
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new Encoder(_device, item, _mp3File))
+                using (_encoder = new EncoderWithAudioStream(_device, item, audioStream, profile))
                 {
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
@@ -283,7 +302,7 @@ namespace SimpleRecorder
         }
 
         private IDirect3DDevice _device;
-        private Encoder _encoder;
+        private EncoderWithAudioStream _encoder;
         private StorageFile _mp3File;
 
         private async void PickAudioFile(object sender, RoutedEventArgs e)
@@ -296,6 +315,58 @@ namespace SimpleRecorder
             _mp3File = await filePicker.PickSingleFileAsync();
 
             audioName.Text = _mp3File.Name;
+        }
+
+
+        private MediaCapture mediaCapture;
+        private LowLagMediaRecording _mediaRecording;
+
+        private async void StartCaptureAudio(object sender, RoutedEventArgs e)
+        {
+            if (mediaCapture == null)
+            {
+                mediaCapture = new MediaCapture();
+                var settings = new MediaCaptureInitializationSettings
+                {
+                    StreamingCaptureMode = StreamingCaptureMode.Audio,
+                };
+                await mediaCapture.InitializeAsync(settings);
+            }
+
+            //var localFolder = Windows.Storage.ApplicationData.Current.LocalFolder;
+            //StorageFile file = await localFolder.CreateFileAsync("audio.mp3", CreationCollisionOption.GenerateUniqueName);
+            //_mediaRecording = await mediaCapture.PrepareLowLagRecordToStorageFileAsync(
+            //    MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High), file);
+
+            var stream = new InMemoryRandomAccessStream();
+            var property = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
+            _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
+                property,
+                stream);
+            await _mediaRecording.StartAsync();
+
+            while (true)
+            {
+                Debug.WriteLine(stream.Size);
+
+                await Task.Delay(1000);
+            }
+        }
+
+        private async void StopCaptureAudio(object sender, RoutedEventArgs e)
+        {
+            if (_mediaRecording != null)
+            {
+                await _mediaRecording.FinishAsync();
+            }
+        }
+
+        private void ToggleMute(object sender, RoutedEventArgs e)
+        {
+            var audio = mediaCapture.AudioDeviceController;
+            audio.Muted = !audio.Muted;
+
+            muteButton.Content = audio.Muted ? "Muted" : "Unmuted";
         }
     }
 }

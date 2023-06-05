@@ -123,7 +123,8 @@
   <ItemGroup>
     <Compile Include="CaptureFrameWait.cs" />
     <Compile Include="Direct3D11Helpers.cs" />
-    <Compile Include="Encoder.cs" />
+    <Compile Include="EncoderWithAudioStream.cs" />
+    <Compile Include="EncoderWithAudioFile.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>
   <ItemGroup>
