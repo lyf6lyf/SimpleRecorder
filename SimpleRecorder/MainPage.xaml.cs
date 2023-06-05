@@ -137,6 +137,8 @@ namespace SimpleRecorder
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
                         stream, width, height, bitrate, frameRate, videoProfile);
+                    //mediaPlayer.SetMediaStreamSource(_encoder.GetMediaSource());
+                    //await Task.Delay(10000000);
                 }
                 MainTextBlock.Foreground = originalBrush;
             }
@@ -344,13 +346,13 @@ namespace SimpleRecorder
             //await _mediaRecording.StartAsync();
 
             var stream = new InMemoryRandomAccessStream();
-            var property = MediaEncodingProfile.CreateWav(AudioEncodingQuality.Medium);
+            var property = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
             _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
                 property,
                 stream);
             await _mediaRecording.StartAsync();
 
-            await Task.Delay(5000);
+            await Task.Delay(2000);
 
             var inputStream = stream.GetInputStreamAt(0);
             IBuffer buffer = new Windows.Storage.Streams.Buffer((uint)stream.Size);

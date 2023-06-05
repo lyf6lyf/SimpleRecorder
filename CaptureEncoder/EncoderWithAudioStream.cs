@@ -89,6 +89,11 @@ namespace CaptureEncoder
             return CreateMediaObjectsInternal().AsAsyncAction();
         }
 
+        public MediaStreamSource GetMediaSource()
+        {
+            return _mediaStreamSource;
+        }
+
         private Task CreateMediaObjectsInternal()
         {
             // Create our encoding profile based on the size of the item
@@ -108,10 +113,12 @@ namespace CaptureEncoder
             _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(3);
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
+            _mediaStreamSource.IsLive = true;
 
             // Create our transcoder
             _transcoder = new MediaTranscoder();
             _transcoder.HardwareAccelerationEnabled = true;
+            _transcoder.AlwaysReencode = true;
 
             return Task.CompletedTask;
         }
@@ -147,16 +154,28 @@ namespace CaptureEncoder
 
                         MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
 
-                        var count = 0;
-                        while (_audioByteOffset + sampleSize > _audioStream.Size)
+                        wait:
+                        var count = 0u;
+                        while (_audioByteOffset + sampleSize > _audioStream.Size && _isRecording)
                         {
                             Debug.WriteLine("audio stream size: " + _audioStream.Size);
 
-                            await Task.Delay(sampleDuration);
-                            if (count++ > 5)
+                            args.Request.ReportSampleProgress(count);
+                            await Task.Delay(500);
+                            if (count++ > 100)
                             {
                                 throw new Exception("audio size is not enough");
                             }
+                        }
+
+                        var discontiinues = false;
+                        if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
+                        {
+                            Debug.WriteLine("go to wait");
+                            _audioByteOffset += sampleSize;
+                            _audioTimeOffset = _audioTimeOffset.Add(sampleDuration);
+                            discontiinues = true;
+                            goto wait;
                         }
 
                         var inputStream = _audioStream.GetInputStreamAt(_audioByteOffset);
@@ -176,7 +195,8 @@ namespace CaptureEncoder
                         Debug.WriteLine("audio frame " + _audioTimeOffset + " " + sample.Timestamp);
 
                         sample.Duration = sampleDuration;
-                        sample.KeyFrame = true;
+                        //sample.KeyFrame = true;
+                        sample.Discontinuous = discontiinues;
 
                         // increment the time and byte offset
 
@@ -206,6 +226,7 @@ namespace CaptureEncoder
         {
             using (var frame = _frameGenerator.WaitForNewFrame())
             {
+                if (frame is null) return;
                 args.Request.SetActualStartPosition(frame.SystemRelativeTime);
                 _audioTimeOffset = frame.SystemRelativeTime;
                 _audioByteOffset = 0;
