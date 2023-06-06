@@ -170,17 +170,6 @@ namespace CaptureEncoder
                             }
                         }
 
-                        // simulate no sample before the 2nd audio stream is ready
-                        var discontinuous = false;
-                        if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
-                        {
-                            Debug.WriteLine("go to wait");
-                            _audioByteOffset += sampleSize;
-                            _audioTimeOffset = _audioTimeOffset.Add(sampleDuration);
-                            discontinuous = true;
-                            goto wait;
-                        }
-
                         var inputStream = _audioStream.GetInputStreamAt(_audioByteOffset);
 
                         // create the MediaStreamSample and assign to the request object. 
@@ -188,12 +177,31 @@ namespace CaptureEncoder
 
                         MediaStreamSample sample = await MediaStreamSample.CreateFromStreamAsync(inputStream, sampleSize, _audioTimeOffset);
 
+                        // simulate empty sample before the 2nd audio stream is ready
+                        if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
+                        {
+                            using (var stream = new InMemoryRandomAccessStream())
+                            {
+                                // Create the data writer object backed by the in-memory stream.
+                                using (var dataWriter = new DataWriter(stream))
+                                {
+                                    var data = new byte[sampleSize];
+                                    dataWriter.WriteBytes(data);
+                                    IBuffer buffer = new Windows.Storage.Streams.Buffer(sampleSize);
+                                    inputStream = stream.GetInputStreamAt(0);
+                                    IBuffer bufferObj = await inputStream.ReadAsync(buffer, sampleSize, InputStreamOptions.None);
+                                    sample = MediaStreamSample.CreateFromBuffer(buffer, _audioTimeOffset);
+                                }
+                            }
+
+                            Debug.WriteLine("empty audio sample");
+                        }
+
                         Debug.WriteLine("audio frame. Timestamp: " + sample.Timestamp + ". DecodeTimestamp: " + sample.DecodeTimestamp);
 
 
                         sample.Duration = sampleDuration;
                         sample.KeyFrame = true;
-                        sample.Discontinuous = discontinuous;
 
                         // increment the time and byte offset
 
