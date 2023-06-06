@@ -110,7 +110,7 @@ namespace CaptureEncoder
 
             // Create our MediaStreamSource
             _mediaStreamSource = new MediaStreamSource(_videoDescriptor, _audioDescriptor);
-            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(3);
+            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(0);
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
             _mediaStreamSource.IsLive = true;
@@ -118,7 +118,7 @@ namespace CaptureEncoder
             // Create our transcoder
             _transcoder = new MediaTranscoder();
             _transcoder.HardwareAccelerationEnabled = true;
-            _transcoder.AlwaysReencode = true;
+            // _transcoder.AlwaysReencode = true;
 
             return Task.CompletedTask;
         }
@@ -144,7 +144,9 @@ namespace CaptureEncoder
 
                             var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, timeStamp);
                             args.Request.Sample = sample;
-                            Debug.WriteLine("video frame " + timeStamp);
+                            //sample.Duration = TimeSpan.FromTicks(10000000 / 60);
+                            Debug.WriteLine("video frame. Timestamp: " + sample.Timestamp + ". DecodeTimestamp: " + sample.DecodeTimestamp);
+                            Debug.WriteLine("video frame. duration: " + sample.Duration);
                         }
                     }
                     else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
@@ -161,20 +163,21 @@ namespace CaptureEncoder
                             Debug.WriteLine("audio stream size: " + _audioStream.Size);
 
                             args.Request.ReportSampleProgress(count);
-                            await Task.Delay(500);
+                            await Task.Delay(100);
                             if (count++ > 100)
                             {
                                 throw new Exception("audio size is not enough");
                             }
                         }
 
-                        var discontiinues = false;
+                        // simulate no sample before the 2nd audio stream is ready
+                        var discontinuous = false;
                         if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
                         {
                             Debug.WriteLine("go to wait");
                             _audioByteOffset += sampleSize;
                             _audioTimeOffset = _audioTimeOffset.Add(sampleDuration);
-                            discontiinues = true;
+                            discontinuous = true;
                             goto wait;
                         }
 
@@ -185,18 +188,12 @@ namespace CaptureEncoder
 
                         MediaStreamSample sample = await MediaStreamSample.CreateFromStreamAsync(inputStream, sampleSize, _audioTimeOffset);
 
-                        //if (_audioByteOffset >= 100000 && _audioByteOffset <= 200000)
-                        //{
-                        //    IBuffer buffer = new Windows.Storage.Streams.Buffer(sampleSize);
-                            
-                        //    //IBuffer bufferObj = await inputStream.ReadAsync(_buffer, sampleSize, InputStreamOptions.None);
-                        //    sample = MediaStreamSample.CreateFromBuffer(buffer, _audioTimeOffset);
-                        //}
-                        Debug.WriteLine("audio frame " + _audioTimeOffset + " " + sample.Timestamp);
+                        Debug.WriteLine("audio frame. Timestamp: " + sample.Timestamp + ". DecodeTimestamp: " + sample.DecodeTimestamp);
+
 
                         sample.Duration = sampleDuration;
-                        //sample.KeyFrame = true;
-                        sample.Discontinuous = discontiinues;
+                        sample.KeyFrame = true;
+                        sample.Discontinuous = discontinuous;
 
                         // increment the time and byte offset
 
