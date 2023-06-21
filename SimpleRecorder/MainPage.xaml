@@ -67,9 +67,9 @@
                     Margin="0,20,0,0"
                     Orientation="Horizontal"
                     Spacing="4">
-                    <!--<Button Click="StartCaptureAudio">Start Capture Audio</Button>
-                    <Button Click="StopCaptureAudio">Stop Capture Audio</Button>-->
-                    <Button x:Name="muteButton" Click="ToggleMute">Mute/Unmute</Button>
+                    <Button Click="StartCaptureAudio">Start Capture Audio</Button>
+                    <Button Click="StopCaptureAudio">Stop Capture Audio</Button>
+                    <!--<Button x:Name="muteButton" Click="ToggleMute">Mute/Unmute</Button>-->
                 </StackPanel>
             </StackPanel>
         </Grid>

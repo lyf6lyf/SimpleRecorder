@@ -1,0 +1,11 @@
+namespace Interop
+{
+    [default_interface]
+    runtimeclass AudioCapture
+    {
+        AudioCapture();
+        void StartCapture();
+        void StopCapture();
+        Int32 MyProperty;
+    }
+}

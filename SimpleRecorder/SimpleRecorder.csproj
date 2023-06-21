@@ -169,6 +169,10 @@
       <Project>{7ffcaeb5-d8ba-49f4-b89f-7033e7a01447}</Project>
       <Name>CaptureEncoder</Name>
     </ProjectReference>
+    <ProjectReference Include="..\Interop\Interop.vcxproj">
+      <Project>{bf879d5d-80ad-4829-a3c3-d5a556ebcae0}</Project>
+      <Name>Interop</Name>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>

@@ -23,6 +23,7 @@ using Windows.Media.Capture;
 using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
 using System.Runtime.InteropServices.WindowsRuntime;
+using Interop;
 
 namespace SimpleRecorder
 {
@@ -320,61 +321,33 @@ namespace SimpleRecorder
             audioName.Text = _mp3File.Name;
         }
 
-
-        private MediaCapture mediaCapture;
+        private MediaCapture mediaCapture = new MediaCapture();
         private LowLagMediaRecording _mediaRecording;
+
+        private AudioCapture _AudioCapture;
 
         private async void StartCaptureAudio(object sender, RoutedEventArgs e)
         {
-            if (mediaCapture == null)
+            // There is a permission issue when calling WASAPI from C# project: it won't show the Ask Permission Dialog.
+            // So call mediaCapture API to show the Ask Permission dialog as workaround.
+            await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings()
             {
-                mediaCapture = new MediaCapture();
-                var settings = new MediaCaptureInitializationSettings
-                {
-                    StreamingCaptureMode = StreamingCaptureMode.Audio,
-                };
-                await mediaCapture.InitializeAsync(settings);
-            }
-            mediaCapture.AudioDeviceController.Muted = true;
+                StreamingCaptureMode = StreamingCaptureMode.Audio
+            });
 
-            //var localFolder = Windows.Storage.ApplicationData.Current.LocalFolder;
-            //StorageFile file = await localFolder.CreateFileAsync("audio.mp3", CreationCollisionOption.GenerateUniqueName);
-            //_mediaRecording = await mediaCapture.PrepareLowLagRecordToStorageFileAsync(
-            //    MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High), file);
-            //await _mediaRecording.StartAsync();
-
-            var stream = new InMemoryRandomAccessStream();
-            var property = MediaEncodingProfile.CreateWav(AudioEncodingQuality.Medium);
-            _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
-                property,
-                stream);
-            await _mediaRecording.StartAsync();
-
-            await Task.Delay(5000);
-
-            var inputStream = stream.GetInputStreamAt(0);
-            IBuffer buffer = new Windows.Storage.Streams.Buffer((uint)stream.Size);
-            await inputStream.ReadAsync(buffer, (uint)stream.Size, InputStreamOptions.None);
-
-            var bytes = new byte[stream.Size];
-            buffer.CopyTo(bytes);
+            _AudioCapture = new AudioCapture();
+            _AudioCapture.StartCapture();
         }
 
         private async void StopCaptureAudio(object sender, RoutedEventArgs e)
         {
-            if (_mediaRecording != null)
-            {
-                // await _mediaRecording.StopAsync();
-                await _mediaRecording.FinishAsync();
-            }
+            _AudioCapture.StopCapture();
+            _AudioCapture = null;
         }
 
         private void ToggleMute(object sender, RoutedEventArgs e)
         {
-            var audio = mediaCapture.AudioDeviceController;
-            audio.Muted = !audio.Muted;
-
-            muteButton.Content = audio.Muted ? "Muted" : "Unmuted";
+            
         }
     }
 }

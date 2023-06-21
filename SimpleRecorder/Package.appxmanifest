@@ -24,6 +24,7 @@
   </Applications>
   <Capabilities>
     <uap6:Capability Name="graphicsCapture" />
+    <uap:Capability Name="musicLibrary"/>
     <DeviceCapability Name="microphone"/>
   </Capabilities>
 </Package>
