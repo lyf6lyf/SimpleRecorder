@@ -321,7 +321,7 @@ namespace SimpleRecorder
             audioName.Text = _mp3File.Name;
         }
 
-        private MediaCapture mediaCapture = new MediaCapture();
+        private MediaCapture mediaCapture;
         private LowLagMediaRecording _mediaRecording;
 
         private AudioCapture _AudioCapture;
@@ -330,10 +330,11 @@ namespace SimpleRecorder
         {
             // There is a permission issue when calling WASAPI from C# project: it won't show the Ask Permission Dialog.
             // So call mediaCapture API to show the Ask Permission dialog as workaround.
-            await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings()
+            if (mediaCapture == null)
             {
-                StreamingCaptureMode = StreamingCaptureMode.Audio
-            });
+                mediaCapture = new MediaCapture();
+                await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings(){StreamingCaptureMode = StreamingCaptureMode.Audio});
+            }
 
             _AudioCapture = new AudioCapture();
             _AudioCapture.StartCapture();

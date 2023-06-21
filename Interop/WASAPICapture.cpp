@@ -49,7 +49,8 @@ namespace winrt::internal
         com_ptr<IActivateAudioInterfaceAsyncOperation> asyncOp;
 
         // Get a string representing the Default Audio Capture Device
-        hstring deviceIdString = MediaDevice::GetDefaultAudioCaptureId(AudioDeviceRole::Default);
+        hstring deviceIdString = MediaDevice::GetDefaultAudioRenderId(AudioDeviceRole::Default);
+        // hstring deviceIdString = MediaDevice::GetDefaultAudioCaptureId(AudioDeviceRole::Default);
 
         // This call must be made on the main UI thread.  Async operation will call back to 
         // IActivateAudioInterfaceCompletionHandler::ActivateCompleted, which must be an agile interface implementation
@@ -141,7 +142,8 @@ namespace winrt::internal
         if (!m_isLowLatency)
         {
             check_hresult(m_audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_LOOPBACK,
+                // AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
                 TimeSpan{ 20ms }.count(), // hnsBufferDuration
                 0,
                 m_mixFormat.get(),
