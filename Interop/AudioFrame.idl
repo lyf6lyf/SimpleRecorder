@@ -1,0 +1,10 @@
+namespace Interop
+{
+    [default_interface]
+    runtimeclass AudioFrame
+    {
+        AudioFrame();
+        UInt64 timestamp;
+        UInt8[] data;
+    }
+}

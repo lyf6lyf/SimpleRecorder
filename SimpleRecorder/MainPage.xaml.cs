@@ -112,28 +112,24 @@ namespace SimpleRecorder
             MainTextBlock.Foreground = new SolidColorBrush(Colors.Red);
             MainProgressBar.IsIndeterminate = true;
 
-
+            // There is a permission issue when calling WASAPI from C# project: it won't show the Ask Permission Dialog.
+            // So call mediaCapture API to show the Ask Permission dialog as workaround.
             if (mediaCapture == null)
             {
                 mediaCapture = new MediaCapture();
-                var settings = new MediaCaptureInitializationSettings
-                {
-                    StreamingCaptureMode = StreamingCaptureMode.Audio,
-                };
-                await mediaCapture.InitializeAsync(settings);
+                await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings() { StreamingCaptureMode = StreamingCaptureMode.Audio });
             }
-            var audioStream = new InMemoryRandomAccessStream();
-            var audioProfile = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Medium);
-            _mediaRecording = await mediaCapture.PrepareLowLagRecordToStreamAsync(
-                audioProfile,
-                audioStream);
-            await _mediaRecording.StartAsync();
+            if (_AudioCapture == null)
+            {
+                _AudioCapture = new AudioCapture(true);
+            }
+            _AudioCapture.StartCapture();
 
             // Kick off the encoding
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new EncoderWithAudioStream(_device, item, audioStream, audioProfile))
+                using (_encoder = new EncoderWithWasapi(_device, item, _AudioCapture.AudioFrames))
                 {
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
@@ -197,9 +193,8 @@ namespace SimpleRecorder
             // If the encoder is doing stuff, tell it to stop
             _encoder?.Dispose();
 
-            await _mediaRecording.StopAsync();
-            await _mediaRecording.FinishAsync();
-            _mediaRecording = null;
+            _AudioCapture?.StopCapture();
+            _AudioCapture = null;
         }
 
         private async Task<StorageFile> PickVideoAsync()
@@ -306,7 +301,7 @@ namespace SimpleRecorder
         }
 
         private IDirect3DDevice _device;
-        private EncoderWithAudioStream _encoder;
+        private EncoderWithWasapi _encoder;
         private StorageFile _mp3File;
 
         private async void PickAudioFile(object sender, RoutedEventArgs e)
@@ -336,7 +331,7 @@ namespace SimpleRecorder
                 await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings(){StreamingCaptureMode = StreamingCaptureMode.Audio});
             }
 
-            _AudioCapture = new AudioCapture();
+            _AudioCapture = new AudioCapture(true);
             _AudioCapture.StartCapture();
         }
 

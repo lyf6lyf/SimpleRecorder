@@ -15,6 +15,7 @@
 #include <mmdeviceapi.h>
 #include <wil/resource.h>
 
+#include "AudioFrame.h"
 #include "Common.h"
 
 namespace winrt::internal
@@ -41,7 +42,7 @@ namespace winrt::internal
     struct WASAPICapture : winrt::implements<WASAPICapture, IActivateAudioInterfaceCompletionHandler>
     {
     public:
-        WASAPICapture();
+        WASAPICapture(bool isMic, winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> audioFrames);
 
         void SetLowLatencyCapture(bool value) { m_isLowLatency = value; }
         void AsyncInitializeAudioDevice() noexcept;
@@ -72,6 +73,7 @@ namespace winrt::internal
         fire_and_forget AsyncStoreData();
 
     private:
+        winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> _audioFrames;
         uint32_t m_bufferFrames = 0;
 
         // Event for sample ready or user stop
@@ -86,6 +88,7 @@ namespace winrt::internal
         uint32_t m_bytesSinceLastFlush = 0;
         bool m_writing = false;
         bool m_isLowLatency = false;
+        bool _isMic = false;
 
         Windows::Storage::Streams::IRandomAccessStream m_contentStream;
         Windows::Storage::Streams::IOutputStream m_outputStream;

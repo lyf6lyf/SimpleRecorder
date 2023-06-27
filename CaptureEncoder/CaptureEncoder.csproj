@@ -123,6 +123,7 @@
   <ItemGroup>
     <Compile Include="CaptureFrameWait.cs" />
     <Compile Include="Direct3D11Helpers.cs" />
+    <Compile Include="EncoderWithWasapi.cs" />
     <Compile Include="EncoderWithAudioStream.cs" />
     <Compile Include="EncoderWithAudioFile.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
@@ -134,6 +135,12 @@
     <PackageReference Include="SharpDX.Direct3D11">
       <Version>4.2.0</Version>
     </PackageReference>
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Interop\Interop.vcxproj">
+      <Project>{bf879d5d-80ad-4829-a3c3-d5a556ebcae0}</Project>
+      <Name>Interop</Name>
+    </ProjectReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
     <VisualStudioVersion>14.0</VisualStudioVersion>

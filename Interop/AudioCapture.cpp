@@ -4,20 +4,11 @@
 
 namespace winrt::Interop::implementation
 {
-    AudioCapture::AudioCapture()
+    AudioCapture::AudioCapture(bool isMic)
     {
-        m_wasapiCapture = winrt::make_self<internal::WASAPICapture>();
+        m_audioFrames = winrt::multi_threaded_vector<winrt::Interop::AudioFrame>();
+        m_wasapiCapture = winrt::make_self<internal::WASAPICapture>(isMic, m_audioFrames);
         m_wasapiCapture->AsyncInitializeAudioDevice();
-    }
-
-    int32_t AudioCapture::MyProperty()
-    {
-        throw hresult_not_implemented();
-    }
-
-    void AudioCapture::MyProperty(int32_t /* value */)
-    {
-        throw hresult_not_implemented();
     }
 
     void AudioCapture::StartCapture()
@@ -30,5 +21,10 @@ namespace winrt::Interop::implementation
     {
         //m_loopbackCapture.StopCaptureAsync();
         m_wasapiCapture->AsyncStopCapture();
+    }
+
+    winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> AudioCapture::AudioFrames()
+    {
+        return m_audioFrames;
     }
 }

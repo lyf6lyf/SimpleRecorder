@@ -115,6 +115,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="AudioFrame.h" >
+      <DependentUpon>AudioFrame.idl</DependentUpon>
+    </ClInclude>
     <ClInclude Include="Common.h" />
     <ClInclude Include="pch.h" />
     <ClInclude Include="WASAPICapture.h" />
@@ -123,6 +126,9 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="AudioFrame.cpp" >
+      <DependentUpon>AudioFrame.idl</DependentUpon>
+    </ClCompile>
     <ClCompile Include="pch.cpp">
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
@@ -134,6 +140,7 @@
   </ItemGroup>
   <ItemGroup>
     <Midl Include="AudioCapture.idl" />
+    <Midl Include="AudioFrame.idl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Interop.def" />

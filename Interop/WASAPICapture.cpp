@@ -25,10 +25,12 @@ namespace winrt::internal
     static constexpr TimeSpan DURATION_TO_VISUALIZE = 20ms;
     static constexpr wchar_t AUDIO_FILE_NAME[] = L"WASAPIAudioCapture.wav";
 
-    WASAPICapture::WASAPICapture()
+    WASAPICapture::WASAPICapture(bool isMic, winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> audioFrames)
     {
         // Set the capture event work queue to use the MMCSS queue
         m_SampleReadyCallback.SetQueueID(m_queueId.get());
+        _isMic = isMic;
+        _audioFrames = audioFrames;
     }
 
     //
@@ -49,12 +51,11 @@ namespace winrt::internal
         com_ptr<IActivateAudioInterfaceAsyncOperation> asyncOp;
 
         // Get a string representing the Default Audio Capture Device
-        hstring deviceIdString = MediaDevice::GetDefaultAudioRenderId(AudioDeviceRole::Default);
-        // hstring deviceIdString = MediaDevice::GetDefaultAudioCaptureId(AudioDeviceRole::Default);
+        hstring deviceIdString = _isMic ? MediaDevice::GetDefaultAudioCaptureId(AudioDeviceRole::Default) : MediaDevice::GetDefaultAudioRenderId(AudioDeviceRole::Default);
 
         // This call must be made on the main UI thread.  Async operation will call back to 
         // IActivateAudioInterfaceCompletionHandler::ActivateCompleted, which must be an agile interface implementation
-        check_hresult(ActivateAudioInterfaceAsync(deviceIdString.c_str(), __uuidof(IAudioClient3), nullptr, this, asyncOp.put()));
+        check_hresult(ActivateAudioInterfaceAsync(deviceIdString.c_str(), __uuidof(IAudioClient), nullptr, this, asyncOp.put()));
 
         m_hActivateCompleted.wait();
     }
@@ -93,6 +94,8 @@ namespace winrt::internal
         case WAVE_FORMAT_IEEE_FLOAT:
             m_mixFormat->wFormatTag = WAVE_FORMAT_PCM;
             m_mixFormat->wBitsPerSample = 16;
+            /*m_mixFormat->nChannels = 2;
+            m_mixFormat->nSamplesPerSec = 48000;*/
             m_mixFormat->nBlockAlign = m_mixFormat->nChannels * m_mixFormat->wBitsPerSample / BITS_PER_BYTE;
             m_mixFormat->nAvgBytesPerSec = m_mixFormat->nSamplesPerSec * m_mixFormat->nBlockAlign;
             break;
@@ -108,6 +111,8 @@ namespace winrt::internal
             {
                 pWaveFormatExtensible->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
                 pWaveFormatExtensible->Format.wBitsPerSample = 16;
+                /*pWaveFormatExtensible->Format.nChannels = 2;
+                pWaveFormatExtensible->Format.nSamplesPerSec = 48000;*/
                 pWaveFormatExtensible->Format.nBlockAlign =
                     pWaveFormatExtensible->Format.nChannels *
                     pWaveFormatExtensible->Format.wBitsPerSample /
@@ -134,16 +139,26 @@ namespace winrt::internal
             break;
         }
 
+        /*WAVEFORMATEX m_CaptureFormat{};
+        m_CaptureFormat.wFormatTag = WAVE_FORMAT_PCM;
+        m_CaptureFormat.nChannels = 2;
+        m_CaptureFormat.nSamplesPerSec = 48000;
+        m_CaptureFormat.wBitsPerSample = 16;
+        m_CaptureFormat.nBlockAlign = m_CaptureFormat.nChannels * m_CaptureFormat.wBitsPerSample / BITS_PER_BYTE;
+        m_CaptureFormat.nAvgBytesPerSec = m_CaptureFormat.nSamplesPerSec * m_CaptureFormat.nBlockAlign;*/
+
         // The wfx parameter below is optional (Its needed only for MATCH_FORMAT clients). Otherwise, wfx will be assumed 
         // to be the current engine format based on the processing mode for this stream
-        check_hresult(m_audioClient->GetSharedModeEnginePeriod(m_mixFormat.get(), &m_defaultPeriodInFrames, &m_fundamentalPeriodInFrames, &m_minPeriodInFrames, &m_maxPeriodInFrames));
+        // ***check_hresult(m_audioClient->GetSharedModeEnginePeriod(m_mixFormat.get(), &m_defaultPeriodInFrames, &m_fundamentalPeriodInFrames, &m_minPeriodInFrames, &m_maxPeriodInFrames));
+
+        WAVEFORMATEX* closest;
+        auto hr = m_audioClient->IsFormatSupported(AUDCLNT_SHAREMODE_SHARED, m_mixFormat.get(), &closest);
 
         // Initialize the AudioClient in Shared Mode with the user specified buffer
         if (!m_isLowLatency)
         {
             check_hresult(m_audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED,
-                AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_LOOPBACK,
-                // AUDCLNT_STREAMFLAGS_EVENTCALLBACK,
+                AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_NOPERSIST | AUDCLNT_STREAMFLAGS_EVENTCALLBACK | (_isMic ? 0 : AUDCLNT_STREAMFLAGS_LOOPBACK),
                 TimeSpan{ 20ms }.count(), // hnsBufferDuration
                 0,
                 m_mixFormat.get(),
@@ -468,6 +483,9 @@ namespace winrt::internal
             return;
         }
 
+        std::vector<uint8_t> packet{};
+        uint64_t firstQpcPosition = 0;
+
         // A word on why we have a loop here:
         // Suppose it has been 10 milliseconds or so since the last time
         // this routine was invoked, and that we're capturing 48000 samples per second.
@@ -510,6 +528,11 @@ namespace winrt::internal
                 // Get sample buffer
                 check_hresult(m_audioCaptureClient->GetBuffer(&data, &framesAvailable, &dwCaptureFlags, &devicePosition, &qpcPosition));
 
+                if(firstQpcPosition == 0)
+                {
+                    firstQpcPosition = qpcPosition;
+                }
+
                 // Ensure that the buffer is released at scope exit, even if an exception occurs.
                 auto release = wil::scope_exit([&] { m_audioCaptureClient->ReleaseBuffer(framesAvailable); });
 
@@ -528,13 +551,20 @@ namespace winrt::internal
 
                 // Update plotter data
                 array_view<uint8_t> dataBytes{ data, bytesToCapture };
-                ProcessScopeData(dataBytes);
+
+                packet.insert(packet.end(), data, data + bytesToCapture);
+                // ProcessScopeData(dataBytes);
 
                 // Write File and async store
                 m_dataWriter.WriteBytes(dataBytes);
 
                 // End of scope: Buffer is released back, and GetBuffer variables are no longer valid
             }
+
+            winrt::Interop::AudioFrame frame;
+            frame.timestamp(firstQpcPosition);
+            frame.data(packet);
+            _audioFrames.Append(frame);
 
             // Increase the size of our 'data' chunk and bytes since last flush.  m_dataSize needs to be accurate but
             // m_bytesSinceLastFlush need only be an approximation.

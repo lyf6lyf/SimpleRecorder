@@ -14,11 +14,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp" />
-    <ClCompile Include="Class.cpp" />
     <ClCompile Include="$(GeneratedFilesDir)module.g.cpp" />
     <ClCompile Include="WASAPICapture.cpp">
       <Filter>Internal</Filter>
     </ClCompile>
+    <ClCompile Include="AudioFrame.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -28,9 +28,11 @@
     <ClInclude Include="WASAPICapture.h">
       <Filter>Internal</Filter>
     </ClInclude>
+    <ClInclude Include="AudioFrame.h" />
   </ItemGroup>
   <ItemGroup>
     <Midl Include="AudioCapture.idl" />
+    <Midl Include="AudioFrame.idl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Interop.def" />
@@ -41,5 +43,8 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="readme.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Natvis Include="$(MSBuildThisFileDirectory)..\..\natvis\wil.natvis" />
   </ItemGroup>
 </Project>
