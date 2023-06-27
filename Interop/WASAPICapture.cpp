@@ -483,9 +483,6 @@ namespace winrt::internal
             return;
         }
 
-        std::vector<uint8_t> packet{};
-        uint64_t firstQpcPosition = 0;
-
         // A word on why we have a loop here:
         // Suppose it has been 10 milliseconds or so since the last time
         // this routine was invoked, and that we're capturing 48000 samples per second.
@@ -528,11 +525,6 @@ namespace winrt::internal
                 // Get sample buffer
                 check_hresult(m_audioCaptureClient->GetBuffer(&data, &framesAvailable, &dwCaptureFlags, &devicePosition, &qpcPosition));
 
-                if(firstQpcPosition == 0)
-                {
-                    firstQpcPosition = qpcPosition;
-                }
-
                 // Ensure that the buffer is released at scope exit, even if an exception occurs.
                 auto release = wil::scope_exit([&] { m_audioCaptureClient->ReleaseBuffer(framesAvailable); });
 
@@ -551,20 +543,18 @@ namespace winrt::internal
 
                 // Update plotter data
                 array_view<uint8_t> dataBytes{ data, bytesToCapture };
-
-                packet.insert(packet.end(), data, data + bytesToCapture);
                 // ProcessScopeData(dataBytes);
+
+                winrt::Interop::AudioFrame frame;
+                frame.timestamp(qpcPosition);
+                frame.data(dataBytes);
+                _audioFrames.Append(frame);
 
                 // Write File and async store
                 m_dataWriter.WriteBytes(dataBytes);
 
                 // End of scope: Buffer is released back, and GetBuffer variables are no longer valid
             }
-
-            winrt::Interop::AudioFrame frame;
-            frame.timestamp(firstQpcPosition);
-            frame.data(packet);
-            _audioFrames.Append(frame);
 
             // Increase the size of our 'data' chunk and bytes since last flush.  m_dataSize needs to be accurate but
             // m_bytesSinceLastFlush need only be an approximation.
