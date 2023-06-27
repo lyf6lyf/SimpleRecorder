@@ -94,8 +94,8 @@ namespace winrt::internal
         case WAVE_FORMAT_IEEE_FLOAT:
             m_mixFormat->wFormatTag = WAVE_FORMAT_PCM;
             m_mixFormat->wBitsPerSample = 16;
-            /*m_mixFormat->nChannels = 2;
-            m_mixFormat->nSamplesPerSec = 48000;*/
+            m_mixFormat->nChannels = 2;
+            m_mixFormat->nSamplesPerSec = 48000;
             m_mixFormat->nBlockAlign = m_mixFormat->nChannels * m_mixFormat->wBitsPerSample / BITS_PER_BYTE;
             m_mixFormat->nAvgBytesPerSec = m_mixFormat->nSamplesPerSec * m_mixFormat->nBlockAlign;
             break;
@@ -111,8 +111,8 @@ namespace winrt::internal
             {
                 pWaveFormatExtensible->SubFormat = KSDATAFORMAT_SUBTYPE_PCM;
                 pWaveFormatExtensible->Format.wBitsPerSample = 16;
-                /*pWaveFormatExtensible->Format.nChannels = 2;
-                pWaveFormatExtensible->Format.nSamplesPerSec = 48000;*/
+                pWaveFormatExtensible->Format.nChannels = 2;
+                pWaveFormatExtensible->Format.nSamplesPerSec = 48000;
                 pWaveFormatExtensible->Format.nBlockAlign =
                     pWaveFormatExtensible->Format.nChannels *
                     pWaveFormatExtensible->Format.wBitsPerSample /
