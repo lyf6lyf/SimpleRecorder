@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Windows.Foundation;
@@ -106,7 +107,7 @@ namespace CaptureEncoder
 
             // Create our MediaStreamSource
             _mediaStreamSource = new MediaStreamSource(_videoDescriptor, _audioDescriptor);
-            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(3);
+            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(0);
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
 
@@ -150,8 +151,8 @@ namespace CaptureEncoder
                         while (_audioFrames.Count == 0)
                         {
                             Debug.WriteLine("Wait audio");
-                            await Task.Delay(100);
-                            if (count++ > 10)
+                            await Task.Delay(10);
+                            if (count++ > 5)
                             {
                                 return;
                                 throw new Exception("audio size is not enough");
@@ -159,21 +160,31 @@ namespace CaptureEncoder
                         }
 
                         var frame = _audioFrames[0];
-                        _audioFrames.RemoveAt(0);
-
-                        if ((long)frame.timestamp < _startedTimestamp.Ticks)
+                        
+                        if ((long)frame.timestamp < _videoStartedTimestamp.Ticks)
                         {
+                            _audioFrames.RemoveAt(0);
                             goto loop;
                         }
 
+                        var frameCount = _audioFrames.Count;
+                        var frames = new Interop.AudioFrame[frameCount];
+                        for (var i = 0; i < frameCount; i++)
+                        {
+                            frames[i] = _audioFrames[0];
+                            _audioFrames.RemoveAt(0);
+                        }
+
+                        var frameBytes = frames.SelectMany(x => x.data).ToArray();
+
                         // create the MediaStreamSample and assign to the request object. 
                         // You could also create the MediaStreamSample using createFromBuffer(...)
-                        IBuffer buffer = frame.data.AsBuffer();
-                        MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, TimeSpan.FromTicks((long)frame.timestamp));
+                        IBuffer buffer = frameBytes.AsBuffer();
+                        MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, TimeSpan.FromTicks((long)frames[0].timestamp));
                         
-                        Debug.WriteLine("audio frame " + sample.Timestamp);
+                        //Debug.WriteLine("audio frame " + sample.Timestamp);
 
-                        sample.Duration = TimeSpan.FromSeconds(1) * ((double)frame.data.Length * 8 / (48000 * 16 * 2));
+                        sample.Duration = TimeSpan.FromSeconds(1) * ((double)frameBytes.Length * 8 / (48000 * 16 * 2));
                         sample.KeyFrame = true;
 
                         args.Request.Sample = sample;
@@ -200,7 +211,7 @@ namespace CaptureEncoder
         {
             using (var frame = _frameGenerator.WaitForNewFrame())
             {
-                _startedTimestamp = frame.SystemRelativeTime;
+                _videoStartedTimestamp = frame.SystemRelativeTime;
                 args.Request.SetActualStartPosition(frame.SystemRelativeTime);
 
                 Debug.WriteLine("starting " + frame.SystemRelativeTime);
@@ -220,6 +231,6 @@ namespace CaptureEncoder
 
         private AudioStreamDescriptor _audioDescriptor;
         private readonly IList<Interop.AudioFrame> _audioFrames;
-        private TimeSpan _startedTimestamp;
+        private TimeSpan _videoStartedTimestamp;
     }
 }
