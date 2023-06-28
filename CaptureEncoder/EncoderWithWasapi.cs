@@ -2,35 +2,41 @@
 // Licensed under the MIT License.
 
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Threading.Tasks;
 using Windows.Foundation;
 using Windows.Graphics.Capture;
 using Windows.Graphics.DirectX.Direct3D11;
-using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.MediaProperties;
 using Windows.Media.Transcoding;
-using Windows.Storage;
 using Windows.Storage.Streams;
 
 namespace CaptureEncoder
 {
     public sealed class EncoderWithWasapi : IDisposable
     {
-        public EncoderWithWasapi(IDirect3DDevice device, GraphicsCaptureItem item, IList<Interop.AudioFrame> audioFrames)
+        public EncoderWithWasapi(IDirect3DDevice device, GraphicsCaptureItem item)
         {
             _device = device;
             _captureItem = item;
-            _audioFrames = audioFrames;
         }
 
         public IAsyncAction EncodeAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate, MediaEncodingProfile videoProfile)
         {
             return EncodeInternalAsync(stream, width, height, bitrateInBps, frameRate, videoProfile).AsAsyncAction();
+        }
+
+        public void ChangeMicMute(bool mute)
+        {
+            if (mute)
+            {
+                _audioClient.MuteDeviceInput();
+            }
+            else
+            {
+                _audioClient.UnmuteDeviceInput();
+            }
         }
 
         private async Task EncodeInternalAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate, MediaEncodingProfile videoProfile)
@@ -47,20 +53,33 @@ namespace CaptureEncoder
                 using (_frameGenerator)
                 {
                     var encodingProfile = new MediaEncodingProfile();
-                    encodingProfile.Container.Subtype = "MPEG4";
-                    //encodingProfile.Video.Subtype = "H264";
-                    //encodingProfile.Video.Width = width;
-                    //encodingProfile.Video.Height = height;
-                    //encodingProfile.Video.Bitrate = bitrateInBps;
+                    encodingProfile.Container.Subtype = MediaEncodingSubtypes.Mpeg4;
+                    encodingProfile.Video.Subtype = MediaEncodingSubtypes.H264;
+                    encodingProfile.Video.Width = width;
+                    encodingProfile.Video.Height = height;
+                    encodingProfile.Video.Bitrate = bitrateInBps;
                     encodingProfile.Video.FrameRate.Numerator = frameRate;
                     encodingProfile.Video.FrameRate.Denominator = 1;
-                    //encodingProfile.Video.PixelAspectRatio.Numerator = 1;
-                    //encodingProfile.Video.PixelAspectRatio.Denominator = 1;
-                    encodingProfile.Video = videoProfile.Video;
-                    encodingProfile.Audio = AudioEncodingProperties.CreateAac(44100, 2, 16);
+                    encodingProfile.Video.PixelAspectRatio.Numerator = 1;
+                    encodingProfile.Video.PixelAspectRatio.Denominator = 1;
+                    encodingProfile.Audio = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Auto).Audio;
+                    // encodingProfile.Audio = AudioEncodingProperties.CreateAac(44100, 2, 16);
+
+                    if (_audioClient == null)
+                    {
+                        _audioClient = new AudioClient();
+                        await _audioClient.InitializeAsync();
+                    }
+
+                    _audioDescriptor = new AudioStreamDescriptor(_audioClient.GetEncodingProperties());
+                    _mediaStreamSource.AddStreamDescriptor(_audioDescriptor);
                     var transcode = await _transcoder.PrepareMediaStreamSourceTranscodeAsync(_mediaStreamSource, stream, encodingProfile);
 
-                    await transcode.TranscodeAsync();
+                    if (transcode.CanTranscode)
+                    {
+                        _audioClient?.Start();
+                        await transcode.TranscodeAsync();
+                    }
                 }
             }
         }
@@ -83,7 +102,8 @@ namespace CaptureEncoder
 
         private void DisposeInternal()
         {
-            _frameGenerator.Dispose();
+            _frameGenerator?.Dispose();
+            _audioClient?.Dispose();
         }
 
         public IAsyncAction CreateMediaObjects()
@@ -101,13 +121,9 @@ namespace CaptureEncoder
             var videoProperties = VideoEncodingProperties.CreateUncompressed(MediaEncodingSubtypes.Bgra8, (uint)width, (uint)height);
             _videoDescriptor = new VideoStreamDescriptor(videoProperties);
 
-            AudioEncodingProperties audioProps = AudioEncodingProperties.CreatePcm(48000, 2, 16);
-            _audioDescriptor = new AudioStreamDescriptor(audioProps);
-
-
             // Create our MediaStreamSource
-            _mediaStreamSource = new MediaStreamSource(_videoDescriptor, _audioDescriptor);
-            _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(0);
+            _mediaStreamSource = new MediaStreamSource(_videoDescriptor);
+            _mediaStreamSource.BufferTime = TimeSpan.Zero;
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
 
@@ -118,7 +134,7 @@ namespace CaptureEncoder
             return Task.CompletedTask;
         }
 
-        private async void OnMediaStreamSourceSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
+        private void OnMediaStreamSourceSampleRequested(MediaStreamSource sender, MediaStreamSourceSampleRequestedEventArgs args)
         {
             if (_isRecording && !_closed)
             {
@@ -146,49 +162,26 @@ namespace CaptureEncoder
                     {
                         MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
 
-                        loop:
-                        var count = 0;
-                        while (_audioFrames.Count == 0)
+                        var def = args.Request.GetDeferral();
+                        var frame = _audioClient.GetAudioFrame();
+                        if (frame == null || frame.Duration.GetValueOrDefault().TotalSeconds == 0)
                         {
-                            Debug.WriteLine("Wait audio");
-                            await Task.Delay(10);
-                            if (count++ > 5)
-                            {
-                                return;
-                                throw new Exception("audio size is not enough");
-                            }
+                            args.Request.Sample = null;
+                            return;
                         }
 
-                        var frame = _audioFrames[0];
-                        
-                        if ((long)frame.timestamp < _videoStartedTimestamp.Ticks)
+                        var buffer = _audioClient.ConvertFrameToBuffer(frame);
+                        if (buffer == null)
                         {
-                            _audioFrames.RemoveAt(0);
-                            goto loop;
+                            return;
                         }
 
-                        var frameCount = _audioFrames.Count;
-                        var frames = new Interop.AudioFrame[frameCount];
-                        for (var i = 0; i < frameCount; i++)
-                        {
-                            frames[i] = _audioFrames[0];
-                            _audioFrames.RemoveAt(0);
-                        }
-
-                        var frameBytes = frames.SelectMany(x => x.data).ToArray();
-
-                        // create the MediaStreamSample and assign to the request object. 
-                        // You could also create the MediaStreamSample using createFromBuffer(...)
-                        IBuffer buffer = frameBytes.AsBuffer();
-                        MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, TimeSpan.FromTicks((long)frames[0].timestamp));
-                        
-                        //Debug.WriteLine("audio frame " + sample.Timestamp);
-
-                        sample.Duration = TimeSpan.FromSeconds(1) * ((double)frameBytes.Length * 8 / (48000 * 16 * 2));
+                        var timeStamp = frame.SystemRelativeTime;
+                        var sample = MediaStreamSample.CreateFromBuffer(buffer, timeStamp.Value);
+                        sample.Duration = frame.Duration.GetValueOrDefault();
                         sample.KeyFrame = true;
-
                         args.Request.Sample = sample;
-                        deferal.Complete();
+                        def.Complete();
                     }
                 }
                 catch (Exception e)
@@ -212,6 +205,7 @@ namespace CaptureEncoder
             using (var frame = _frameGenerator.WaitForNewFrame())
             {
                 _videoStartedTimestamp = frame.SystemRelativeTime;
+                _audioClient.SetStartTime(_videoStartedTimestamp);
                 args.Request.SetActualStartPosition(frame.SystemRelativeTime);
 
                 Debug.WriteLine("starting " + frame.SystemRelativeTime);
@@ -230,7 +224,7 @@ namespace CaptureEncoder
         private bool _closed = false;
 
         private AudioStreamDescriptor _audioDescriptor;
-        private readonly IList<Interop.AudioFrame> _audioFrames;
+        private AudioClient _audioClient;
         private TimeSpan _videoStartedTimestamp;
     }
 }

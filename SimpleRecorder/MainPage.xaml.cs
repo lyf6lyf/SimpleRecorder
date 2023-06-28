@@ -112,24 +112,11 @@ namespace SimpleRecorder
             MainTextBlock.Foreground = new SolidColorBrush(Colors.Red);
             MainProgressBar.IsIndeterminate = true;
 
-            // There is a permission issue when calling WASAPI from C# project: it won't show the Ask Permission Dialog.
-            // So call mediaCapture API to show the Ask Permission dialog as workaround.
-            if (mediaCapture == null)
-            {
-                mediaCapture = new MediaCapture();
-                await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings() { StreamingCaptureMode = StreamingCaptureMode.Audio });
-            }
-            if (_AudioCapture == null)
-            {
-                _AudioCapture = new AudioCapture(true);
-            }
-            _AudioCapture.StartCapture();
-
             // Kick off the encoding
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new EncoderWithWasapi(_device, item, _AudioCapture.AudioFrames))
+                using (_encoder = new EncoderWithWasapi(_device, item))
                 {
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
@@ -188,13 +175,10 @@ namespace SimpleRecorder
             await Launcher.LaunchFileAsync(newFile);
         }
 
-        private async void ToggleButton_Unchecked(object sender, RoutedEventArgs e)
+        private void ToggleButton_Unchecked(object sender, RoutedEventArgs e)
         {
             // If the encoder is doing stuff, tell it to stop
             _encoder?.Dispose();
-
-            _AudioCapture?.StopCapture();
-            _AudioCapture = null;
         }
 
         private async Task<StorageFile> PickVideoAsync()
@@ -312,34 +296,9 @@ namespace SimpleRecorder
             filePicker.ViewMode = PickerViewMode.List;
 
             _mp3File = await filePicker.PickSingleFileAsync();
-
-            audioName.Text = _mp3File.Name;
         }
 
         private MediaCapture mediaCapture;
-        private LowLagMediaRecording _mediaRecording;
-
-        private AudioCapture _AudioCapture;
-
-        private async void StartCaptureAudio(object sender, RoutedEventArgs e)
-        {
-            // There is a permission issue when calling WASAPI from C# project: it won't show the Ask Permission Dialog.
-            // So call mediaCapture API to show the Ask Permission dialog as workaround.
-            if (mediaCapture == null)
-            {
-                mediaCapture = new MediaCapture();
-                await mediaCapture.InitializeAsync(new MediaCaptureInitializationSettings(){StreamingCaptureMode = StreamingCaptureMode.Audio});
-            }
-
-            _AudioCapture = new AudioCapture(true);
-            _AudioCapture.StartCapture();
-        }
-
-        private async void StopCaptureAudio(object sender, RoutedEventArgs e)
-        {
-            _AudioCapture.StopCapture();
-            _AudioCapture = null;
-        }
 
         private void ToggleMute(object sender, RoutedEventArgs e)
         {
