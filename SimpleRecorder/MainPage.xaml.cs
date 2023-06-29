@@ -19,7 +19,11 @@ using Windows.UI.Xaml.Controls;
 using Windows.UI.Xaml.Controls.Primitives;
 using Windows.UI.Xaml.Media;
 using Windows.Foundation;
+using Windows.Media.Capture;
+using Windows.Storage.Streams;
 using Windows.UI.ViewManagement;
+using System.Runtime.InteropServices.WindowsRuntime;
+using Interop;
 
 namespace SimpleRecorder
 {
@@ -72,10 +76,10 @@ namespace SimpleRecorder
             var quality = (VideoEncodingQuality)Enum.Parse(typeof(VideoEncodingQuality), (string)QualityComboBox.SelectedItem, false);
             var useSourceSize = UseCaptureItemSizeCheckBox.IsChecked.Value;
 
-            var temp = MediaEncodingProfile.CreateMp4(quality);
-            var bitrate = temp.Video.Bitrate;
-            var width = temp.Video.Width;
-            var height = temp.Video.Height;
+            var videoProfile = MediaEncodingProfile.CreateMp4(quality);
+            var bitrate = videoProfile.Video.Bitrate;
+            var width = videoProfile.Video.Width;
+            var height = videoProfile.Video.Height;
 
             // Get our capture item
             var picker = new GraphicsCapturePicker();
@@ -112,12 +116,11 @@ namespace SimpleRecorder
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new Encoder(_device, item))
+                using (_encoder = new EncoderWithWasapi(_device, item))
                 {
+                    await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
-                        stream, 
-                        width, height, bitrate, 
-                        frameRate);
+                        stream, width, height, bitrate, frameRate, videoProfile);
                 }
                 MainTextBlock.Foreground = originalBrush;
             }
@@ -282,6 +285,24 @@ namespace SimpleRecorder
         }
 
         private IDirect3DDevice _device;
-        private Encoder _encoder;
+        private EncoderWithWasapi _encoder;
+        private StorageFile _mp3File;
+
+        private async void PickAudioFile(object sender, RoutedEventArgs e)
+        {
+            FileOpenPicker filePicker = new FileOpenPicker();
+            filePicker.SuggestedStartLocation = PickerLocationId.MusicLibrary;
+            filePicker.FileTypeFilter.Add(".mp3");
+            filePicker.ViewMode = PickerViewMode.List;
+
+            _mp3File = await filePicker.PickSingleFileAsync();
+        }
+
+        private MediaCapture mediaCapture;
+
+        private void ToggleMute(object sender, RoutedEventArgs e)
+        {
+            
+        }
     }
 }

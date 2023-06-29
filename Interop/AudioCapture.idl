@@ -1,0 +1,13 @@
+import "AudioFrame.idl";
+
+namespace Interop
+{
+    [default_interface]
+    runtimeclass AudioCapture
+    {
+        AudioCapture(Boolean isMic);
+        void StartCapture();
+        void StopCapture();
+        Windows.Foundation.Collections.IVector<AudioFrame> AudioFrames { get; };
+    }
+}

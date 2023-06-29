@@ -11,7 +11,7 @@
     <AssemblyName>SimpleRecorder</AssemblyName>
     <DefaultLanguage>en-US</DefaultLanguage>
     <TargetPlatformIdentifier>UAP</TargetPlatformIdentifier>
-    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.18362.0</TargetPlatformVersion>
+    <TargetPlatformVersion Condition=" '$(TargetPlatformVersion)' == '' ">10.0.22000.0</TargetPlatformVersion>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
     <MinimumVisualStudioVersion>14</MinimumVisualStudioVersion>
     <FileAlignment>512</FileAlignment>
@@ -140,6 +140,7 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="Package.StoreAssociation.xml" />
+    <Content Include="Assets\emptyAudio.mp3" />
     <Content Include="Properties\Default.rd.xml" />
     <Content Include="Assets\LockScreenLogo.scale-200.png" />
     <Content Include="Assets\SplashScreen.scale-200.png" />
@@ -168,6 +169,10 @@
     <ProjectReference Include="..\CaptureEncoder\CaptureEncoder.csproj">
       <Project>{7ffcaeb5-d8ba-49f4-b89f-7033e7a01447}</Project>
       <Name>CaptureEncoder</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\Interop\Interop.vcxproj">
+      <Project>{bf879d5d-80ad-4829-a3c3-d5a556ebcae0}</Project>
+      <Name>Interop</Name>
     </ProjectReference>
   </ItemGroup>
   <PropertyGroup Condition=" '$(VisualStudioVersion)' == '' or '$(VisualStudioVersion)' &lt; '14.0' ">
