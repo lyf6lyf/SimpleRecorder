@@ -1,6 +1,7 @@
 ﻿// Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+using Interop;
 using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
@@ -62,8 +63,8 @@ namespace CaptureEncoder
                     encodingProfile.Video.FrameRate.Denominator = 1;
                     encodingProfile.Video.PixelAspectRatio.Numerator = 1;
                     encodingProfile.Video.PixelAspectRatio.Denominator = 1;
-                    encodingProfile.Audio = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.Auto).Audio;
-                    // encodingProfile.Audio = AudioEncodingProperties.CreateAac(44100, 2, 16);
+                    encodingProfile.Audio = MediaEncodingProfile.CreateMp3(AudioEncodingQuality.High).Audio;
+                    //encodingProfile.Audio = MediaEncodingProfile.CreateWma(AudioEncodingQuality.High).Audio;
 
                     if (_audioClient == null)
                     {
@@ -92,11 +93,7 @@ namespace CaptureEncoder
             }
             _closed = true;
 
-            if (!_isRecording)
-            {
-                DisposeInternal();
-            }
-
+            DisposeInternal();
             _isRecording = false;            
         }
 
@@ -142,6 +139,13 @@ namespace CaptureEncoder
                 {
                     if (args.Request.StreamDescriptor is VideoStreamDescriptor)
                     {
+                        if (_lastSampleIsVideo)
+                        {
+                            args.Request.Sample = null;
+                            DisposeInternal();
+                            return;
+                        }
+
                         using (var frame = _frameGenerator.WaitForNewFrame())
                         {
                             if (frame == null)
@@ -151,15 +155,23 @@ namespace CaptureEncoder
                                 return;
                             }
 
-                            var timeStamp = frame.SystemRelativeTime;
+                            var timeStamp = frame.SystemRelativeTime - _timeOffset;
 
                             var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, timeStamp);
                             args.Request.Sample = sample;
-                            //Debug.WriteLine("video frame " + timeStamp);
+                            _lastSampleIsVideo = true;
+                            Debug.WriteLine("video frame " + timeStamp);
                         }
                     }
                     else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
                     {
+                        if (!_lastSampleIsVideo)
+                        {
+                            args.Request.Sample = null;
+                            DisposeInternal();
+                            return;
+                        }
+
                         MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
 
                         var def = args.Request.GetDeferral();
@@ -173,14 +185,18 @@ namespace CaptureEncoder
                         var buffer = _audioClient.ConvertFrameToBuffer(frame);
                         if (buffer == null)
                         {
+                            args.Request.Sample = null;
                             return;
                         }
 
-                        var timeStamp = frame.SystemRelativeTime;
-                        var sample = MediaStreamSample.CreateFromBuffer(buffer, timeStamp.Value);
-                        sample.Duration = frame.Duration.GetValueOrDefault();
+                        var timeStamp = frame.RelativeTime.GetValueOrDefault();
+                        var sample = MediaStreamSample.CreateFromBuffer(buffer, timeStamp);
+                        
+                        //sample.Duration = TimeSpan.FromSeconds(1) * ((double)buffer.Length * 8 / (48000 * 16 * 2));
                         sample.KeyFrame = true;
                         args.Request.Sample = sample;
+                        _lastSampleIsVideo = false;
+                        Debug.WriteLine("audio frame " + timeStamp);
                         def.Complete();
                     }
                 }
@@ -206,9 +222,18 @@ namespace CaptureEncoder
             {
                 _videoStartedTimestamp = frame.SystemRelativeTime;
                 _audioClient.SetStartTime(_videoStartedTimestamp);
-                args.Request.SetActualStartPosition(frame.SystemRelativeTime);
+                // args.Request.SetActualStartPosition(frame.SystemRelativeTime);
+                _timeOffset = frame.SystemRelativeTime;
 
                 Debug.WriteLine("starting " + frame.SystemRelativeTime);
+            }
+
+            if (_audioClient != null)
+            {
+                using (var frame = _audioClient.GetAudioFrame())
+                {
+                    _timeOffset += frame.RelativeTime.GetValueOrDefault();
+                }
             }
         }
 
@@ -223,8 +248,10 @@ namespace CaptureEncoder
         private bool _isRecording;
         private bool _closed = false;
 
+        private TimeSpan _timeOffset = default;
         private AudioStreamDescriptor _audioDescriptor;
         private AudioClient _audioClient;
         private TimeSpan _videoStartedTimestamp;
+        private bool _lastSampleIsVideo = false;
     }
 }

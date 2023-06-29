@@ -2,7 +2,6 @@
 // Licensed under the MIT License.
 
 using System.Diagnostics;
-using System.IO;
 using System;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
@@ -13,9 +12,10 @@ using Windows.Media;
 using Windows.Storage.Streams;
 using Interop;
 using System.Linq;
-using System.Collections.Generic;
 using Windows.Media.MediaProperties;
 using Windows.Storage;
+using System.Collections.Generic;
+using System.IO;
 
 namespace CaptureEncoder
 {
@@ -24,16 +24,20 @@ namespace CaptureEncoder
         private AudioCapture _wasapiLoopbackCapture;
         private AudioGraph _audioGraph;
         private AudioFrameInputNode _loopbackInputNode;
+        private AudioFrameInputNode _emptyInputNode;
         private AudioFileInputNode _audioFileInputNode;
         private AudioDeviceInputNode _deviceInputNode;
         private AudioFrameOutputNode _frameOutputNode;
         private AudioSubmixNode _submixNode;
-        private object _lockObject = new object();
+        private Stream _loopingAudioStream;
         private Stopwatch _stopwatch = new Stopwatch();
         private int _frameCount = 0;
         private bool disposedValue;
         private bool _isStarted;
+        private long _readPosition = 0;
         private TimeSpan _startTimestamp;
+        private TimeSpan _emptyOffsetTime;
+        private bool _isHandling;
 
         public IAsyncAction InitializeAsync()
         {
@@ -45,12 +49,11 @@ namespace CaptureEncoder
             // 开始录制.
             ShowMessage("开始录制");
             _startTimestamp = TimeSpan.Zero;
+            _wasapiLoopbackCapture?.StartCapture();
             _audioGraph.Start();
-            _audioFileInputNode.Start();
             _loopbackInputNode?.Start();
             _frameOutputNode.Start();
             _stopwatch.Start();
-            _wasapiLoopbackCapture?.StartCapture();
             _isStarted = true;
         }
 
@@ -60,7 +63,6 @@ namespace CaptureEncoder
             ShowMessage("录制结束");
             var duration = _stopwatch.Elapsed.TotalSeconds;
             ShowMessage($"总计音频帧数：{_frameCount}\n用时：{duration:0.0}s\n频率：{_frameCount / duration}");
-            _audioFileInputNode?.Stop();
             _loopbackInputNode?.Stop();
             _frameOutputNode?.Stop();
             _audioGraph?.Stop();
@@ -81,9 +83,6 @@ namespace CaptureEncoder
             try
             {
                 var frame = _frameOutputNode.GetFrame();
-                var ts = Stopwatch.GetTimestamp();
-                ts = ts * TimeSpan.TicksPerSecond / Stopwatch.Frequency;
-                frame.SystemRelativeTime = new TimeSpan(ts);
                 return frame;
             }
             catch (Exception)
@@ -132,7 +131,8 @@ namespace CaptureEncoder
                 _wasapiLoopbackCapture = new AudioCapture(false);
             }
 
-            ShowMessage("NAudio initialized");
+            _loopingAudioStream = new MemoryStream();
+            ShowMessage("Loopback capture initialized");
             await InitializeAudioGraphAsync();
             ShowMessage("AudioGraph initialized");
         }
@@ -147,13 +147,15 @@ namespace CaptureEncoder
                 ShowMessage("AudioGraph creation error: " + result.Status.ToString());
             }
 
+            _emptyOffsetTime = TimeSpan.Zero;
             _audioGraph = result.Graph;
+            //await CreateFileInputNodeAsync();
             CreateFrameOutputNode();
             await CreateDeviceInputNodeAsync();
-            await CreateFileInputNodeAsync();
-            CreateFrameInputNode();
+            CreateLoopbackFrameInputNode();
+            CreateEmptyFrameInputNode();
 
-            if (_frameOutputNode == null || _deviceInputNode == null)
+            if (_frameOutputNode == null)
             {
                 return;
             }
@@ -161,8 +163,9 @@ namespace CaptureEncoder
 
             var subNode = _audioGraph.CreateSubmixNode();
             _deviceInputNode.AddOutgoingConnection(subNode);
+            //_audioFileInputNode.AddOutgoingConnection(subNode);
             _loopbackInputNode.AddOutgoingConnection(subNode);
-            _audioFileInputNode.AddOutgoingConnection(subNode);
+            _emptyInputNode.AddOutgoingConnection(subNode);
             _submixNode = subNode;
             subNode.AddOutgoingConnection(_frameOutputNode);
         }
@@ -172,11 +175,17 @@ namespace CaptureEncoder
             Debug.WriteLine(msg);
         }
 
-        private void CreateFrameInputNode()
+        private void CreateLoopbackFrameInputNode()
         {
             _loopbackInputNode = _audioGraph.CreateFrameInputNode();
             _loopbackInputNode.Stop();
             _loopbackInputNode.QuantumStarted += OnLoopbackInputNodeQuantumStarted;
+        }
+
+        private void CreateEmptyFrameInputNode()
+        {
+            _emptyInputNode = _audioGraph.CreateFrameInputNode();
+            _emptyInputNode.QuantumStarted += OnEmptyInputNodeQuantumStarted;
         }
 
         private async Task CreateFileInputNodeAsync()
@@ -210,25 +219,29 @@ namespace CaptureEncoder
             _frameOutputNode = _audioGraph.CreateFrameOutputNode();
         }
 
-        unsafe private Windows.Media.AudioFrame GenerateAudioData(uint samples)
+        unsafe private Windows.Media.AudioFrame GenerateLoopbackAudioData(uint samples)
         {
-            if (_startTimestamp == TimeSpan.Zero)
+            var sourceFrames = _wasapiLoopbackCapture.AudioFrames;
+            var frameCounts = sourceFrames.Count;
+            _loopingAudioStream.Seek(0, SeekOrigin.End);
+            var testCount = 0;
+            for (var i = 0; i < frameCounts; i++)
             {
-                _wasapiLoopbackCapture.AudioFrames.Clear();
-                return default;
+                _loopingAudioStream.Write(sourceFrames[i].data, 0, sourceFrames[i].data.Length);
+                testCount += sourceFrames[i].data.Length;
+            }
+
+            for (var i = frameCounts - 1; i >= 0; i--)
+            {
+                sourceFrames.RemoveAt(i);
             }
 
             uint bufferSize = _audioGraph.EncodingProperties.SampleRate;
             // Buffer size is (number of samples) * (size of each sample)
             // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
             var frame = new Windows.Media.AudioFrame(bufferSize);
-            var tempFrames = _wasapiLoopbackCapture.AudioFrames.Where(p => Convert.ToInt64(p.timestamp) >= _startTimestamp.Ticks).ToList();
-            if (tempFrames.Count == 0)
-            {
-                return default;
-            }
 
-            frame.SystemRelativeTime = TimeSpan.FromTicks((long)tempFrames.FirstOrDefault().timestamp);
+            //frame.SystemRelativeTime = TimeSpan.FromTicks((long)localFrames.FirstOrDefault().timestamp);
             using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
             using (IMemoryBufferReference reference = buffer.CreateReference())
             {
@@ -238,42 +251,49 @@ namespace CaptureEncoder
                 // Get the buffer from the AudioFrame
                 ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
 
-                var bytes = new List<byte>();
-                lock (_lockObject)
+                if (_loopingAudioStream.Length < _readPosition + bufferSize)
                 {
-                    var count = tempFrames.Count;
-                    var totalSize = tempFrames.Select(p => p.data.Length).Sum();
-                    if (totalSize < bufferSize)
-                    {
-                        return default;
-                    }
-
-                    for (int i = 0; i < count; i++)
-                    {
-                        var currentFrame = tempFrames[i];
-
-                        if (bytes.Count >= bufferSize)
-                        {
-                            count = i;
-                            break;
-                        }
-
-                        bytes.AddRange(tempFrames[i].data);
-                    }
-
-                    for (int i = 0; i < bufferSize; i++)
-                    {
-                        dataInBytes[i] = bytes[i];
-                    }
-
-                    for (int i = count - 1; i >= 0; i--)
-                    {
-                        _wasapiLoopbackCapture.AudioFrames.RemoveAt(i);
-                    }
+                    return default;
                 }
+
+                var bytes = new byte[bufferSize];
+                _loopingAudioStream.Seek(Convert.ToInt64(_readPosition), SeekOrigin.Begin);
+                _loopingAudioStream.Read(bytes, 0, (int)bufferSize);
+                for (int i = 0; i < bufferSize; i++)
+                {
+                    dataInBytes[i] = bytes[i];
+                }
+
+                _readPosition += bufferSize;
             }
 
+            frame.Duration = TimeSpan.FromMilliseconds(10);
+            return frame;
+        }
 
+        unsafe private Windows.Media.AudioFrame GenerateEmptyAudioData(uint samples)
+        {
+            uint bufferSize = _audioGraph.EncodingProperties.SampleRate;
+            // Buffer size is (number of samples) * (size of each sample)
+            // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
+            var frame = new Windows.Media.AudioFrame(bufferSize);
+
+            //frame.SystemRelativeTime = TimeSpan.FromTicks((long)localFrames.FirstOrDefault().timestamp);
+            using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
+            using (IMemoryBufferReference reference = buffer.CreateReference())
+            {
+                byte* dataInBytes;
+                uint capacityInBytes;
+
+                // Get the buffer from the AudioFrame
+                ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
+
+                var bytes = new byte[bufferSize];
+            }
+
+            frame.Duration = TimeSpan.FromMilliseconds(1000.0 * samples / _audioGraph.EncodingProperties.SampleRate);
+            frame.RelativeTime = _emptyOffsetTime;
+            _emptyOffsetTime = (_emptyOffsetTime + frame.Duration).Value;
             return frame;
         }
 
@@ -284,7 +304,7 @@ namespace CaptureEncoder
                 return;
             }
 
-            var frame = GenerateAudioData((uint)args.RequiredSamples);
+            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples);
             if (frame == null)
             {
                 return;
@@ -292,6 +312,22 @@ namespace CaptureEncoder
 
             sender.AddFrame(frame);
             _frameCount++;
+        }
+
+        private void OnEmptyInputNodeQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
+        {
+            if (args.RequiredSamples == 0)
+            {
+                return;
+            }
+
+            var frame = GenerateEmptyAudioData((uint)args.RequiredSamples);
+            if (frame == null)
+            {
+                return;
+            }
+
+            sender.AddFrame(frame);
         }
 
         unsafe private IBuffer ProcessFrameOutput(Windows.Media.AudioFrame frame)
@@ -322,6 +358,7 @@ namespace CaptureEncoder
                     {
                         _stopwatch?.Stop();
                         _audioGraph?.Dispose();
+                        _loopingAudioStream?.Dispose();
                     }
                     catch (Exception)
                     {
