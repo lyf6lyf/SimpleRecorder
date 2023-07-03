@@ -149,11 +149,11 @@ namespace CaptureEncoder
 
             _emptyOffsetTime = TimeSpan.Zero;
             _audioGraph = result.Graph;
-            //await CreateFileInputNodeAsync();
+            await CreateFileInputNodeAsync();
             CreateFrameOutputNode();
             await CreateDeviceInputNodeAsync();
             CreateLoopbackFrameInputNode();
-            CreateEmptyFrameInputNode();
+            //CreateEmptyFrameInputNode();
 
             if (_frameOutputNode == null)
             {
@@ -163,9 +163,9 @@ namespace CaptureEncoder
 
             var subNode = _audioGraph.CreateSubmixNode();
             _deviceInputNode.AddOutgoingConnection(subNode);
-            //_audioFileInputNode.AddOutgoingConnection(subNode);
+            _audioFileInputNode.AddOutgoingConnection(subNode);
             _loopbackInputNode.AddOutgoingConnection(subNode);
-            _emptyInputNode.AddOutgoingConnection(subNode);
+            //_emptyInputNode.AddOutgoingConnection(subNode);
             _submixNode = subNode;
             subNode.AddOutgoingConnection(_frameOutputNode);
         }
