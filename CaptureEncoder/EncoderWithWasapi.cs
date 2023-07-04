@@ -21,11 +21,12 @@ namespace CaptureEncoder
 {
     public sealed class EncoderWithWasapi : IDisposable
     {
-        public EncoderWithWasapi(IDirect3DDevice device, GraphicsCaptureItem item, IList<Interop.AudioFrame> audioFrames)
+        public EncoderWithWasapi(IDirect3DDevice device, GraphicsCaptureItem item, IList<Interop.AudioFrame> micAudioFrames, IList<Interop.AudioFrame> loopbackAudioFrames)
         {
             _device = device;
             _captureItem = item;
-            _audioFrames = audioFrames;
+            _micAudioFrames = micAudioFrames;
+            _loopbackAudioFrames = loopbackAudioFrames;
         }
 
         public IAsyncAction EncodeAsync(IRandomAccessStream stream, uint width, uint height, uint bitrateInBps, uint frameRate, MediaEncodingProfile videoProfile)
@@ -78,7 +79,8 @@ namespace CaptureEncoder
                 DisposeInternal();
             }
 
-            _isRecording = false;            
+            _isRecording = false;
+            Debug.WriteLine(_output);
         }
 
         private void DisposeInternal()
@@ -102,11 +104,19 @@ namespace CaptureEncoder
             _videoDescriptor = new VideoStreamDescriptor(videoProperties);
 
             AudioEncodingProperties audioProps = AudioEncodingProperties.CreatePcm(48000, 2, 16);
-            _audioDescriptor = new AudioStreamDescriptor(audioProps);
+            _micAudioDescriptor = new AudioStreamDescriptor(audioProps);
 
+            AudioEncodingProperties audioProps2 = AudioEncodingProperties.CreatePcm(48000, 2, 16);
+            _loopbackAudioDescriptor = new AudioStreamDescriptor(audioProps2);
 
             // Create our MediaStreamSource
-            _mediaStreamSource = new MediaStreamSource(_videoDescriptor, _audioDescriptor);
+            _mediaStreamSource = new MediaStreamSource(_videoDescriptor);
+            _mediaStreamSource.AddStreamDescriptor(_loopbackAudioDescriptor);
+            _mediaStreamSource.AddStreamDescriptor(_micAudioDescriptor);
+
+            var selected = _micAudioDescriptor.IsSelected;
+            var selected2 = _loopbackAudioDescriptor.IsSelected;
+
             _mediaStreamSource.BufferTime = TimeSpan.FromSeconds(0);
             _mediaStreamSource.Starting += OnMediaStreamSourceStarting;
             _mediaStreamSource.SampleRequested += OnMediaStreamSourceSampleRequested;
@@ -139,40 +149,55 @@ namespace CaptureEncoder
 
                             var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, timeStamp);
                             args.Request.Sample = sample;
-                            //Debug.WriteLine("video frame " + timeStamp);
+                            _currentVideoFrameTimestamp = timeStamp;
+                            OutputDebugString("video frame " + timeStamp);
                         }
                     }
-                    else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
+                    else if (args.Request.StreamDescriptor == _micAudioDescriptor)
                     {
                         MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
 
                         loop:
                         var count = 0;
-                        while (_audioFrames.Count == 0)
+                        while (_micAudioFrames.Count == 0)
                         {
-                            Debug.WriteLine("Wait audio");
-                            await Task.Delay(10);
-                            if (count++ > 5)
+                            OutputDebugString($"Wait audio {count}");
+                            if (count++ > 1)
                             {
+                                // No new samples in last 20ms, fill 0s bytes
+                                var gap = _currentVideoFrameTimestamp - _lastMicAudioFrameEndTimestamp;
+                                if (gap < TimeSpan.FromMilliseconds(20)) gap = TimeSpan.FromMilliseconds(20);
+
+                                var zeroBytes = new byte[(int)((48000 * 16 * 2 / 8) * (gap / TimeSpan.FromSeconds(1)))];
+                                var zeroBuffer = zeroBytes.AsBuffer();
+                                var zeroSample = MediaStreamSample.CreateFromBuffer(zeroBuffer, _lastMicAudioFrameEndTimestamp);
+                                zeroSample.Duration = gap;
+                                zeroSample.KeyFrame = true;
+                                args.Request.Sample = zeroSample;
+                                OutputDebugString("empty audio frame " + _lastMicAudioFrameEndTimestamp);
+                                _lastMicAudioFrameEndTimestamp = _lastMicAudioFrameEndTimestamp.Add(gap);
+                                deferal.Complete();
                                 return;
                                 throw new Exception("audio size is not enough");
                             }
+                            await Task.Delay(10);
+
                         }
 
-                        var frame = _audioFrames[0];
+                        var frame = _micAudioFrames[0];
                         
-                        if ((long)frame.timestamp < _videoStartedTimestamp.Ticks)
+                        if ((long)frame.timestamp < _videoFrameStartTimestamp.Ticks)
                         {
-                            _audioFrames.RemoveAt(0);
+                            _micAudioFrames.RemoveAt(0);
                             goto loop;
                         }
 
-                        var frameCount = _audioFrames.Count;
+                        var frameCount = _micAudioFrames.Count;
                         var frames = new Interop.AudioFrame[frameCount];
                         for (var i = 0; i < frameCount; i++)
                         {
-                            frames[i] = _audioFrames[0];
-                            _audioFrames.RemoveAt(0);
+                            frames[i] = _micAudioFrames[0];
+                            _micAudioFrames.RemoveAt(0);
                         }
 
                         var frameBytes = frames.SelectMany(x => x.data).ToArray();
@@ -182,11 +207,78 @@ namespace CaptureEncoder
                         IBuffer buffer = frameBytes.AsBuffer();
                         MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, TimeSpan.FromTicks((long)frames[0].timestamp));
                         
-                        //Debug.WriteLine("audio frame " + sample.Timestamp);
 
                         sample.Duration = TimeSpan.FromSeconds(1) * ((double)frameBytes.Length * 8 / (48000 * 16 * 2));
                         sample.KeyFrame = true;
 
+                        _lastMicAudioFrameEndTimestamp = sample.Timestamp + sample.Duration;
+                        // Debug.WriteLine($"Now {TimeSpan.FromTicks(Stopwatch.GetTimestamp())}, timestamp {sample.Timestamp}, duration {sample.Duration}, next expected timestamp {sample.Timestamp + sample.Duration} ");
+                        OutputDebugString("mic audio frame " + sample.Timestamp);
+                        args.Request.Sample = sample;
+                        deferal.Complete();
+                    }
+                    else if (args.Request.StreamDescriptor == _loopbackAudioDescriptor)
+                    {
+                        MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
+
+                        loop:
+                        var count = 0;
+                        while (_loopbackAudioFrames.Count == 0)
+                        {
+                            OutputDebugString($"Wait audio {count}");
+                            if (count++ > 1)
+                            {
+                                // No new samples in last 20ms, fill 0s bytes
+                                var gap = _currentVideoFrameTimestamp - _lastLoopbackAudioFrameEndTimestamp;
+                                if (gap < TimeSpan.FromMilliseconds(20)) gap = TimeSpan.FromMilliseconds(20);
+
+                                var zeroBytes = new byte[(int)((48000 * 16 * 2 / 8) * (gap / TimeSpan.FromSeconds(1)))];
+                                var zeroBuffer = zeroBytes.AsBuffer();
+                                var zeroSample = MediaStreamSample.CreateFromBuffer(zeroBuffer, _lastLoopbackAudioFrameEndTimestamp);
+                                zeroSample.Duration = gap;
+                                zeroSample.KeyFrame = true;
+                                args.Request.Sample = zeroSample;
+                                OutputDebugString("empty audio frame " + _lastLoopbackAudioFrameEndTimestamp);
+                                _lastLoopbackAudioFrameEndTimestamp = _lastLoopbackAudioFrameEndTimestamp.Add(gap);
+                                deferal.Complete();
+                                return;
+                                throw new Exception("audio size is not enough");
+                            }
+
+                            await Task.Delay(10);
+
+                        }
+
+                        var frame = _loopbackAudioFrames[0];
+
+                        if ((long)frame.timestamp < _videoFrameStartTimestamp.Ticks)
+                        {
+                            _loopbackAudioFrames.RemoveAt(0);
+                            goto loop;
+                        }
+
+                        var frameCount = _loopbackAudioFrames.Count;
+                        var frames = new Interop.AudioFrame[frameCount];
+                        for (var i = 0; i < frameCount; i++)
+                        {
+                            frames[i] = _loopbackAudioFrames[0];
+                            _loopbackAudioFrames.RemoveAt(0);
+                        }
+
+                        var frameBytes = frames.SelectMany(x => x.data).ToArray();
+
+                        // create the MediaStreamSample and assign to the request object. 
+                        // You could also create the MediaStreamSample using createFromBuffer(...)
+                        IBuffer buffer = frameBytes.AsBuffer();
+                        MediaStreamSample sample = MediaStreamSample.CreateFromBuffer(buffer, TimeSpan.FromTicks((long)frames[0].timestamp));
+
+
+                        sample.Duration = TimeSpan.FromSeconds(1) * ((double)frameBytes.Length * 8 / (48000 * 16 * 2));
+                        sample.KeyFrame = true;
+
+                        _lastLoopbackAudioFrameEndTimestamp = sample.Timestamp + sample.Duration;
+                        // Debug.WriteLine($"Now {TimeSpan.FromTicks(Stopwatch.GetTimestamp())}, timestamp {sample.Timestamp}, duration {sample.Duration}, next expected timestamp {sample.Timestamp + sample.Duration} ");
+                        OutputDebugString("loopback audio frame " + sample.Timestamp);
                         args.Request.Sample = sample;
                         deferal.Complete();
                     }
@@ -207,11 +299,21 @@ namespace CaptureEncoder
             }
         }
 
+        private string _output = "";
+        private void OutputDebugString(string message)
+        {
+            _output += $"{Stopwatch.GetTimestamp()} {message}\n";
+            //Debug.WriteLine(message);
+        }   
+
         private void OnMediaStreamSourceStarting(MediaStreamSource sender, MediaStreamSourceStartingEventArgs args)
         {
             using (var frame = _frameGenerator.WaitForNewFrame())
             {
-                _videoStartedTimestamp = frame.SystemRelativeTime;
+                _lastMicAudioFrameEndTimestamp = frame.SystemRelativeTime;
+                _lastLoopbackAudioFrameEndTimestamp = frame.SystemRelativeTime;
+                _videoFrameStartTimestamp = frame.SystemRelativeTime;
+                _currentVideoFrameTimestamp = frame.SystemRelativeTime;
                 args.Request.SetActualStartPosition(frame.SystemRelativeTime);
 
                 Debug.WriteLine("starting " + frame.SystemRelativeTime);
@@ -229,8 +331,13 @@ namespace CaptureEncoder
         private bool _isRecording;
         private bool _closed = false;
 
-        private AudioStreamDescriptor _audioDescriptor;
-        private readonly IList<Interop.AudioFrame> _audioFrames;
-        private TimeSpan _videoStartedTimestamp;
+        private AudioStreamDescriptor _micAudioDescriptor;
+        private AudioStreamDescriptor _loopbackAudioDescriptor;
+        private readonly IList<Interop.AudioFrame> _micAudioFrames;
+        private readonly IList<Interop.AudioFrame> _loopbackAudioFrames;
+        private TimeSpan _lastMicAudioFrameEndTimestamp;
+        private TimeSpan _lastLoopbackAudioFrameEndTimestamp;
+        private TimeSpan _videoFrameStartTimestamp;
+        private TimeSpan _currentVideoFrameTimestamp;
     }
 }

@@ -124,12 +124,17 @@ namespace SimpleRecorder
                 _AudioCapture = new AudioCapture(true);
             }
             _AudioCapture.StartCapture();
+            if (_AudioCapture2 == null)
+            {
+                _AudioCapture2 = new AudioCapture(false);
+            }
+            _AudioCapture2.StartCapture();
 
             // Kick off the encoding
             try
             {
                 using (var stream = await file.OpenAsync(FileAccessMode.ReadWrite))
-                using (_encoder = new EncoderWithWasapi(_device, item, _AudioCapture.AudioFrames))
+                using (_encoder = new EncoderWithWasapi(_device, item, _AudioCapture.AudioFrames, _AudioCapture2.AudioFrames))
                 {
                     await _encoder.CreateMediaObjects();
                     await _encoder.EncodeAsync(
@@ -195,6 +200,9 @@ namespace SimpleRecorder
 
             _AudioCapture?.StopCapture();
             _AudioCapture = null;
+
+            _AudioCapture2?.StopCapture();
+            _AudioCapture2 = null;
         }
 
         private async Task<StorageFile> PickVideoAsync()
@@ -320,6 +328,7 @@ namespace SimpleRecorder
         private LowLagMediaRecording _mediaRecording;
 
         private AudioCapture _AudioCapture;
+        private AudioCapture _AudioCapture2;
 
         private async void StartCaptureAudio(object sender, RoutedEventArgs e)
         {
