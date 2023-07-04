@@ -135,79 +135,74 @@ namespace CaptureEncoder
         {
             if (_isRecording && !_closed)
             {
-                try
+                var def = args.Request.GetDeferral();
+                if (args.Request.StreamDescriptor is VideoStreamDescriptor)
                 {
-                    if (args.Request.StreamDescriptor is VideoStreamDescriptor)
+                    if (_lastSampleIsVideo.HasValue && _lastSampleIsVideo.Value)
                     {
-                        if (_lastSampleIsVideo)
-                        {
-                            args.Request.Sample = null;
-                            DisposeInternal();
-                            return;
-                        }
-
-                        using (var frame = _frameGenerator.WaitForNewFrame())
-                        {
-                            if (frame == null)
-                            {
-                                args.Request.Sample = null;
-                                DisposeInternal();
-                                return;
-                            }
-
-                            var timeStamp = frame.SystemRelativeTime - _timeOffset;
-
-                            var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, timeStamp);
-                            args.Request.Sample = sample;
-                            _lastSampleIsVideo = true;
-                            Debug.WriteLine("video frame " + timeStamp);
-                        }
+                        //args.Request.Sample = null;
+                        //def.Complete();
+                        //DisposeInternal();
+                        //return;
+                        Debug.WriteLine("Repeat video");
                     }
-                    else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
+
+                    using (var frame = _frameGenerator.WaitForNewFrame())
                     {
-                        if (!_lastSampleIsVideo)
+                        if (frame == null)
                         {
                             args.Request.Sample = null;
+                            def.Complete();
                             DisposeInternal();
                             return;
                         }
 
-                        MediaStreamSourceSampleRequestDeferral deferal = args.Request.GetDeferral();
+                        var timeStamp = frame.SystemRelativeTime - _timeOffset;
 
-                        var def = args.Request.GetDeferral();
-                        var frame = _audioClient.GetAudioFrame();
-                        if (frame == null || frame.Duration.GetValueOrDefault().TotalSeconds == 0)
-                        {
-                            args.Request.Sample = null;
-                            return;
-                        }
-
-                        var buffer = _audioClient.ConvertFrameToBuffer(frame);
-                        if (buffer == null)
-                        {
-                            args.Request.Sample = null;
-                            return;
-                        }
-
-                        var timeStamp = frame.RelativeTime.GetValueOrDefault();
-                        var sample = MediaStreamSample.CreateFromBuffer(buffer, timeStamp);
-                        
-                        //sample.Duration = TimeSpan.FromSeconds(1) * ((double)buffer.Length * 8 / (48000 * 16 * 2));
-                        sample.KeyFrame = true;
+                        var sample = MediaStreamSample.CreateFromDirect3D11Surface(frame.Surface, timeStamp);
                         args.Request.Sample = sample;
-                        _lastSampleIsVideo = false;
-                        Debug.WriteLine("audio frame " + timeStamp);
-                        def.Complete();
+                        _lastSampleIsVideo = true;
+                        //Debug.WriteLine("video frame " + timeStamp);
                     }
                 }
-                catch (Exception e)
+                else if (args.Request.StreamDescriptor is AudioStreamDescriptor)
                 {
-                    Debug.WriteLine(e.Message);
-                    Debug.WriteLine(e.StackTrace);
-                    Debug.WriteLine(e);
-                    args.Request.Sample = null;
-                    DisposeInternal();
+                    if (_lastSampleIsVideo.HasValue && !_lastSampleIsVideo.Value)
+                    {
+                        //args.Request.Sample = null;
+                        //def.Complete();
+                        //DisposeInternal();
+                        //return;
+                        Debug.WriteLine("Repeat Audio");
+                    }
+
+                    var frame = _audioClient.GetAudioFrame();
+                    if (frame == null)
+                    {
+                        args.Request.Sample = null;
+                        def.Complete();
+                        return;
+                    }
+
+                    var buffer = _audioClient.ConvertFrameToBuffer(frame);
+                    if (buffer == null)
+                    {
+                        args.Request.Sample = null;
+                        def.Complete();
+                        return;
+                    }
+
+                    var timeStamp = frame.RelativeTime.GetValueOrDefault();
+                    var sample = MediaStreamSample.CreateFromBuffer(buffer, timeStamp);
+
+                    //sample.Duration = TimeSpan.FromSeconds(1) * ((double)buffer.Length * 8 / (48000 * 16 * 2));
+                    sample.KeyFrame = true;
+                    args.Request.Sample = sample;
+                    _lastSampleIsVideo = false;
+                    //Debug.WriteLine("audio frame " + timeStamp);
                 }
+
+                def.Complete();
             }
             else
             {
@@ -252,6 +247,6 @@ namespace CaptureEncoder
         private AudioStreamDescriptor _audioDescriptor;
         private AudioClient _audioClient;
         private TimeSpan _videoStartedTimestamp;
-        private bool _lastSampleIsVideo = false;
+        private bool? _lastSampleIsVideo = default;
     }
 }

@@ -162,8 +162,8 @@ namespace CaptureEncoder
 
 
             var subNode = _audioGraph.CreateSubmixNode();
-            _deviceInputNode.AddOutgoingConnection(subNode);
             _audioFileInputNode.AddOutgoingConnection(subNode);
+            _deviceInputNode.AddOutgoingConnection(subNode);
             _loopbackInputNode.AddOutgoingConnection(subNode);
             //_emptyInputNode.AddOutgoingConnection(subNode);
             _submixNode = subNode;
@@ -199,6 +199,7 @@ namespace CaptureEncoder
 
             _audioFileInputNode = result.FileInputNode;
             _audioFileInputNode.LoopCount = null;
+            _audioFileInputNode.Start();
         }
 
         private async Task CreateDeviceInputNodeAsync()
@@ -297,6 +298,32 @@ namespace CaptureEncoder
             return frame;
         }
 
+        unsafe private Windows.Media.AudioFrame GenerateTestEmptyAudioData(uint samples)
+        {
+            // 缓冲区大小是 (采样数) * (每个采样的字节数) * (通道数)
+            uint bufferSize = samples * sizeof(float) * _audioGraph.EncodingProperties.ChannelCount;
+
+            // 创建一个新的 AudioFrame 对象
+            var frame = new Windows.Media.AudioFrame(bufferSize);
+
+            // 获取缓冲区的指针
+            using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
+            using (IMemoryBufferReference reference = buffer.CreateReference())
+            {
+                byte* dataInBytes;
+                uint capacityInBytes;
+                ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
+
+                // 将缓冲区清零
+                for (int i = 0; i < capacityInBytes; i++)
+                {
+                    dataInBytes[i] = 0;
+                }
+            }
+
+            return frame;
+        }
+
         private void OnLoopbackInputNodeQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
         {
             if (args.RequiredSamples == 0)
@@ -304,12 +331,8 @@ namespace CaptureEncoder
                 return;
             }
 
-            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples);
-            if (frame == null)
-            {
-                return;
-            }
-
+            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples)
+                ?? GenerateTestEmptyAudioData((uint)args.RequiredSamples);
             sender.AddFrame(frame);
             _frameCount++;
         }
