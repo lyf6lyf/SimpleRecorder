@@ -199,7 +199,7 @@ namespace CaptureEncoder
                     sample.KeyFrame = true;
                     args.Request.Sample = sample;
                     _lastSampleIsVideo = false;
-                    //Debug.WriteLine("audio frame " + timeStamp);
+                    //Debug.WriteLine("audio frame " + timeStamp + " " + buffer.Length);
                 }
 
                 def.Complete();

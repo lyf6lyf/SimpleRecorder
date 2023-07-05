@@ -140,7 +140,7 @@ namespace CaptureEncoder
         private async Task InitializeAudioGraphAsync()
         {
             AudioGraphSettings settings = new AudioGraphSettings(Windows.Media.Render.AudioRenderCategory.Media);
-            settings.QuantumSizeSelectionMode = QuantumSizeSelectionMode.ClosestToDesired;
+            settings.QuantumSizeSelectionMode = QuantumSizeSelectionMode.SystemDefault;
             CreateAudioGraphResult result = await AudioGraph.CreateAsync(settings);
             if (result.Status != AudioGraphCreationStatus.Success)
             {
@@ -149,11 +149,11 @@ namespace CaptureEncoder
 
             _emptyOffsetTime = TimeSpan.Zero;
             _audioGraph = result.Graph;
-            await CreateFileInputNodeAsync();
+            //await CreateFileInputNodeAsync();
             CreateFrameOutputNode();
-            await CreateDeviceInputNodeAsync();
+            //await CreateDeviceInputNodeAsync();
             CreateLoopbackFrameInputNode();
-            //CreateEmptyFrameInputNode();
+            CreateEmptyFrameInputNode();
 
             if (_frameOutputNode == null)
             {
@@ -162,10 +162,10 @@ namespace CaptureEncoder
 
 
             var subNode = _audioGraph.CreateSubmixNode();
-            _audioFileInputNode.AddOutgoingConnection(subNode);
-            _deviceInputNode.AddOutgoingConnection(subNode);
-            _loopbackInputNode.AddOutgoingConnection(subNode);
-            //_emptyInputNode.AddOutgoingConnection(subNode);
+            _audioFileInputNode?.AddOutgoingConnection(subNode);
+            _deviceInputNode?.AddOutgoingConnection(subNode);
+            _loopbackInputNode?.AddOutgoingConnection(subNode);
+            _emptyInputNode?.AddOutgoingConnection(subNode);
             _submixNode = subNode;
             subNode.AddOutgoingConnection(_frameOutputNode);
         }
@@ -269,12 +269,16 @@ namespace CaptureEncoder
             }
 
             frame.Duration = TimeSpan.FromMilliseconds(10);
+            frame.RelativeTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp());
             return frame;
         }
 
+        private uint emptyFrameCount = 0;
         unsafe private Windows.Media.AudioFrame GenerateEmptyAudioData(uint samples)
         {
-            uint bufferSize = _audioGraph.EncodingProperties.SampleRate;
+            emptyFrameCount += samples;
+            //Debug.WriteLine($"Generate empty frame {samples}");
+            uint bufferSize = samples * 32 * 2 / 8;
             // Buffer size is (number of samples) * (size of each sample)
             // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
             var frame = new Windows.Media.AudioFrame(bufferSize);
@@ -289,11 +293,14 @@ namespace CaptureEncoder
                 // Get the buffer from the AudioFrame
                 ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
 
-                var bytes = new byte[bufferSize];
+                for (int i = 0; i < bufferSize; i++)
+                {
+                    dataInBytes[i] = 0;
+                }
             }
 
             frame.Duration = TimeSpan.FromMilliseconds(1000.0 * samples / _audioGraph.EncodingProperties.SampleRate);
-            frame.RelativeTime = _emptyOffsetTime;
+            frame.RelativeTime = TimeSpan.FromTicks(Stopwatch.GetTimestamp());
             _emptyOffsetTime = (_emptyOffsetTime + frame.Duration).Value;
             return frame;
         }
