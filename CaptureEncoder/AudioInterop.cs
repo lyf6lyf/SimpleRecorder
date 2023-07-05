@@ -153,7 +153,6 @@ namespace CaptureEncoder
             CreateFrameOutputNode();
             await CreateDeviceInputNodeAsync();
             CreateLoopbackFrameInputNode();
-            //CreateEmptyFrameInputNode();
 
             if (_frameOutputNode == null)
             {
@@ -165,7 +164,6 @@ namespace CaptureEncoder
             _audioFileInputNode.AddOutgoingConnection(subNode);
             _deviceInputNode.AddOutgoingConnection(subNode);
             _loopbackInputNode.AddOutgoingConnection(subNode);
-            //_emptyInputNode.AddOutgoingConnection(subNode);
             _submixNode = subNode;
             subNode.AddOutgoingConnection(_frameOutputNode);
         }
@@ -180,12 +178,6 @@ namespace CaptureEncoder
             _loopbackInputNode = _audioGraph.CreateFrameInputNode();
             _loopbackInputNode.Stop();
             _loopbackInputNode.QuantumStarted += OnLoopbackInputNodeQuantumStarted;
-        }
-
-        private void CreateEmptyFrameInputNode()
-        {
-            _emptyInputNode = _audioGraph.CreateFrameInputNode();
-            _emptyInputNode.QuantumStarted += OnEmptyInputNodeQuantumStarted;
         }
 
         private async Task CreateFileInputNodeAsync()
@@ -272,36 +264,10 @@ namespace CaptureEncoder
             return frame;
         }
 
-        unsafe private Windows.Media.AudioFrame GenerateEmptyAudioData(uint samples)
-        {
-            uint bufferSize = _audioGraph.EncodingProperties.SampleRate;
-            // Buffer size is (number of samples) * (size of each sample)
-            // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
-            var frame = new Windows.Media.AudioFrame(bufferSize);
-
-            //frame.SystemRelativeTime = TimeSpan.FromTicks((long)localFrames.FirstOrDefault().timestamp);
-            using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
-            using (IMemoryBufferReference reference = buffer.CreateReference())
-            {
-                byte* dataInBytes;
-                uint capacityInBytes;
-
-                // Get the buffer from the AudioFrame
-                ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
-
-                var bytes = new byte[bufferSize];
-            }
-
-            frame.Duration = TimeSpan.FromMilliseconds(1000.0 * samples / _audioGraph.EncodingProperties.SampleRate);
-            frame.RelativeTime = _emptyOffsetTime;
-            _emptyOffsetTime = (_emptyOffsetTime + frame.Duration).Value;
-            return frame;
-        }
-
         unsafe private Windows.Media.AudioFrame GenerateTestEmptyAudioData(uint samples)
         {
             // 缓冲区大小是 (采样数) * (每个采样的字节数) * (通道数)
-            uint bufferSize = samples * sizeof(float) * _audioGraph.EncodingProperties.ChannelCount;
+            uint bufferSize = samples * (_loopbackInputNode.EncodingProperties.BitsPerSample / 8) * _loopbackInputNode.EncodingProperties.ChannelCount;
 
             // 创建一个新的 AudioFrame 对象
             var frame = new Windows.Media.AudioFrame(bufferSize);
@@ -331,31 +297,16 @@ namespace CaptureEncoder
                 return;
             }
 
-            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples);
+            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples)
+                ?? GenerateTestEmptyAudioData((uint)args.RequiredSamples);
 
-            if (frame == null)
-            {
-                return;
-            }
+            //if (frame == null)
+            //{
+            //    return;
+            //}
                 
             sender.AddFrame(frame);
             _frameCount++;
-        }
-
-        private void OnEmptyInputNodeQuantumStarted(AudioFrameInputNode sender, FrameInputNodeQuantumStartedEventArgs args)
-        {
-            if (args.RequiredSamples == 0)
-            {
-                return;
-            }
-
-            var frame = GenerateEmptyAudioData((uint)args.RequiredSamples);
-            if (frame == null)
-            {
-                return;
-            }
-
-            sender.AddFrame(frame);
         }
 
         unsafe private IBuffer ProcessFrameOutput(Windows.Media.AudioFrame frame)
