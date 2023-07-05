@@ -16,6 +16,7 @@ using Windows.Media.MediaProperties;
 using Windows.Storage;
 using System.Collections.Generic;
 using System.IO;
+using Windows.Devices.Enumeration;
 
 namespace CaptureEncoder
 {
@@ -196,7 +197,10 @@ namespace CaptureEncoder
 
         private async Task CreateDeviceInputNodeAsync()
         {
-            var result = await _audioGraph.CreateDeviceInputNodeAsync(Windows.Media.Capture.MediaCategory.Other).AsTask();
+            var devices = await DeviceInformation.FindAllAsync(DeviceClass.AudioCapture);
+            var firstDevice = devices.FirstOrDefault();
+            var encoding = AudioEncodingProperties.CreatePcm(48000, 2, 32);
+            var result = await _audioGraph.CreateDeviceInputNodeAsync(Windows.Media.Capture.MediaCategory.Other, encoding, firstDevice).AsTask();
             if (result.Status != AudioDeviceNodeCreationStatus.Success)
             {
                 // Cannot create device output node
