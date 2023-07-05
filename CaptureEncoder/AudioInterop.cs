@@ -237,7 +237,7 @@ namespace CaptureEncoder
                 sourceFrames.RemoveAt(i);
             }
 
-            uint bufferSize = _audioGraph.EncodingProperties.SampleRate;
+            uint bufferSize = samples * (_loopbackInputNode.EncodingProperties.BitsPerSample / 8) * _loopbackInputNode.EncodingProperties.ChannelCount;
             // Buffer size is (number of samples) * (size of each sample)
             // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
             var frame = new Windows.Media.AudioFrame(bufferSize);
@@ -331,8 +331,13 @@ namespace CaptureEncoder
                 return;
             }
 
-            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples)
-                ?? GenerateTestEmptyAudioData((uint)args.RequiredSamples);
+            var frame = GenerateLoopbackAudioData((uint)args.RequiredSamples);
+
+            if (frame == null)
+            {
+                return;
+            }
+                
             sender.AddFrame(frame);
             _frameCount++;
         }

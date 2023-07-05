@@ -144,7 +144,7 @@ namespace CaptureEncoder
                         //def.Complete();
                         //DisposeInternal();
                         //return;
-                        Debug.WriteLine("Repeat video");
+                        //Debug.WriteLine("Repeat video");
                     }
 
                     using (var frame = _frameGenerator.WaitForNewFrame())
@@ -173,7 +173,7 @@ namespace CaptureEncoder
                         //def.Complete();
                         //DisposeInternal();
                         //return;
-                        Debug.WriteLine("Repeat Audio");
+                        //Debug.WriteLine("Repeat Audio");
                     }
 
                     var frame = _audioClient.GetAudioFrame();
