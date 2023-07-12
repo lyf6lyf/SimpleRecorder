@@ -29,27 +29,31 @@ namespace CaptureEncoder
         private AudioDeviceInputNode _deviceInputNode;
         private AudioFrameOutputNode _frameOutputNode;
         private AudioSubmixNode _submixNode;
-        private Stream _loopingAudioStream;
         private Stopwatch _stopwatch = new Stopwatch();
         private int _frameCount = 0;
         private bool disposedValue;
         private bool _isStarted;
-        private long _readPosition = 0;
         private TimeSpan _startTimestamp;
         private TimeSpan _emptyOffsetTime;
         private bool _isHandling;
+        private AudioEncodingProperties _wasapiAudioEncodingProperties;
 
         public IAsyncAction InitializeAsync()
         {
             return InitializeInternal().AsAsyncAction();
         }
 
-        public void Start()
+        public IAsyncAction StartAsync()
+        {
+            return StartAsyncInternal().AsAsyncAction();
+        }
+
+        private async Task StartAsyncInternal()
         {
             // 开始录制.
             ShowMessage("开始录制");
             _startTimestamp = TimeSpan.Zero;
-            _wasapiLoopbackCapture?.StartCapture();
+            await _wasapiLoopbackCapture?.StartCaptureAsync();
             _audioGraph.Start();
             _loopbackInputNode?.Start();
             _frameOutputNode.Start();
@@ -57,7 +61,12 @@ namespace CaptureEncoder
             _isStarted = true;
         }
 
-        public void Stop()
+        public IAsyncAction StopAsync()
+        {
+            return StopAsyncInternal().AsAsyncAction();
+        }
+
+        private async Task StopAsyncInternal()
         {
             // 结束录制.
             ShowMessage("录制结束");
@@ -66,7 +75,10 @@ namespace CaptureEncoder
             _loopbackInputNode?.Stop();
             _frameOutputNode?.Stop();
             _audioGraph?.Stop();
-            _wasapiLoopbackCapture.StopCapture();
+            if (_wasapiLoopbackCapture != null)
+            {
+                await _wasapiLoopbackCapture.StopCaptureAsync();
+            }
             _isStarted = false;
         }
 
@@ -128,10 +140,11 @@ namespace CaptureEncoder
         {
             if (_wasapiLoopbackCapture == null)
             {
-                _wasapiLoopbackCapture = new AudioCapture(false);
+                _wasapiLoopbackCapture = new AudioCapture();
+                await _wasapiLoopbackCapture.InitializeAsync();
+                _wasapiAudioEncodingProperties = _wasapiLoopbackCapture.AudioEncodingProperties;
             }
 
-            _loopingAudioStream = new MemoryStream();
             ShowMessage("Loopback capture initialized");
             await InitializeAudioGraphAsync();
             ShowMessage("AudioGraph initialized");
@@ -177,7 +190,7 @@ namespace CaptureEncoder
 
         private void CreateLoopbackFrameInputNode()
         {
-            _loopbackInputNode = _audioGraph.CreateFrameInputNode();
+            _loopbackInputNode = _audioGraph.CreateFrameInputNode(_wasapiAudioEncodingProperties);
             _loopbackInputNode.Stop();
             _loopbackInputNode.QuantumStarted += OnLoopbackInputNodeQuantumStarted;
         }
@@ -222,24 +235,16 @@ namespace CaptureEncoder
 
         unsafe private Windows.Media.AudioFrame GenerateLoopbackAudioData(uint samples)
         {
-            var sourceFrames = _wasapiLoopbackCapture.AudioFrames;
-            var frameCounts = sourceFrames.Count;
-            _loopingAudioStream.Seek(0, SeekOrigin.End);
-            var testCount = 0;
-            for (var i = 0; i < frameCounts; i++)
-            {
-                _loopingAudioStream.Write(sourceFrames[i].data, 0, sourceFrames[i].data.Length);
-                testCount += sourceFrames[i].data.Length;
-            }
-
-            for (var i = frameCounts - 1; i >= 0; i--)
-            {
-                sourceFrames.RemoveAt(i);
-            }
-
-            uint bufferSize = samples * (_loopbackInputNode.EncodingProperties.BitsPerSample / 8) * _loopbackInputNode.EncodingProperties.ChannelCount;
             // Buffer size is (number of samples) * (size of each sample)
             // We choose to generate single channel (mono) audio. For multi-channel, multiply by number of channels
+            uint bufferSize = samples * (_loopbackInputNode.EncodingProperties.BitsPerSample / 8) * _loopbackInputNode.EncodingProperties.ChannelCount;
+            
+            var audioData = _wasapiLoopbackCapture.GetNextAudioBytes(bufferSize);
+            if (audioData is null || audioData.Length == 0)
+            {
+                return default;
+            }
+
             var frame = new Windows.Media.AudioFrame(bufferSize);
 
             //frame.SystemRelativeTime = TimeSpan.FromTicks((long)localFrames.FirstOrDefault().timestamp);
@@ -252,20 +257,10 @@ namespace CaptureEncoder
                 // Get the buffer from the AudioFrame
                 ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
 
-                if (_loopingAudioStream.Length < _readPosition + bufferSize)
-                {
-                    return default;
-                }
-
-                var bytes = new byte[bufferSize];
-                _loopingAudioStream.Seek(Convert.ToInt64(_readPosition), SeekOrigin.Begin);
-                _loopingAudioStream.Read(bytes, 0, (int)bufferSize);
                 for (int i = 0; i < bufferSize; i++)
                 {
-                    dataInBytes[i] = bytes[i];
+                    dataInBytes[i] = audioData[i];
                 }
-
-                _readPosition += bufferSize;
             }
 
             frame.Duration = TimeSpan.FromMilliseconds(10);
@@ -378,7 +373,7 @@ namespace CaptureEncoder
         {
             if (!disposedValue)
             {
-                Stop();
+                StopAsync().GetAwaiter().GetResult();
 
                 if (disposing)
                 {
@@ -386,7 +381,6 @@ namespace CaptureEncoder
                     {
                         _stopwatch?.Stop();
                         _audioGraph?.Dispose();
-                        _loopingAudioStream?.Dispose();
                     }
                     catch (Exception)
                     {

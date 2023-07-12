@@ -15,27 +15,6 @@ struct MediaFoundationInitializer
     }
 };
 
-// RAII class analogous to std::unique_ptr, but calls CoTaskMemFree instead of delete.
-template<typename T>
-struct unique_cotaskmem_ptr
-{
-    unique_cotaskmem_ptr(T* p = nullptr) : m_p(p) {}
-    ~unique_cotaskmem_ptr() { CoTaskMemFree(m_p); }
-
-    unique_cotaskmem_ptr(unique_cotaskmem_ptr const&) = delete;
-    unique_cotaskmem_ptr(unique_cotaskmem_ptr&& other) : m_p(std::exchange(other.m_p, nullptr)) {}
-    unique_cotaskmem_ptr& operator=(unique_cotaskmem_ptr const& other)
-    {
-        CoTaskMemFree(std::exchange(m_p, std::exchange(other.m_p, nullptr)));
-        return *this;
-    }
-
-    T* operator->() { return m_p; }
-    T* get() { return m_p; }
-    T** put() { return &m_p; }
-    T* m_p;
-};
-
 // RAII class to lock/unlock a shared work queue.
 struct unique_shared_work_queue
 {
@@ -98,5 +77,5 @@ struct EmbeddedMFAsyncCallback : ::IMFAsyncCallback
         return (m_parent->*Callback)(result);
     }
 
-    void SetQueueID(DWORD queueId) { m_queueId = queueId; }
+    void SetQueueId(DWORD queueId) { m_queueId = queueId; }
 };

@@ -5,9 +5,12 @@ namespace Interop
     [default_interface]
     runtimeclass AudioCapture
     {
-        AudioCapture(Boolean isMic);
-        void StartCapture();
-        void StopCapture();
-        Windows.Foundation.Collections.IVector<AudioFrame> AudioFrames { get; };
+        AudioCapture();
+        
+        Windows.Media.MediaProperties.AudioEncodingProperties AudioEncodingProperties { get; };
+        Windows.Foundation.IAsyncAction InitializeAsync();
+        Windows.Foundation.IAsyncAction StartCaptureAsync();
+        Windows.Foundation.IAsyncAction StopCaptureAsync();
+        UInt8[] GetNextAudioBytes(UInt32 size);
     }
 }

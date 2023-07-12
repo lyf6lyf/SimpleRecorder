@@ -7,6 +7,7 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Media.Devices.h>
+#include <winrt/Windows.Media.MediaProperties.h>
 #include <winrt/Windows.Storage.h>
 #include <winrt/Windows.Storage.Pickers.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -25,10 +26,7 @@
 #include <winrt/Windows.UI.Xaml.Shapes.h>
 #include <forward_list>
 
-#include <mmreg.h>
+
 #include <mmdeviceapi.h>
 #include <mfapi.h>
-#include <mfidl.h>
-#include <mfreadwrite.h>
-#include <mferror.h>
 #include <AudioClient.h>

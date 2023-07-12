@@ -5,17 +5,17 @@
 
 namespace winrt::Interop::implementation
 {
-    struct AudioCapture : AudioCaptureT<AudioCapture>, MediaFoundationInitializer
+    struct AudioCapture : AudioCaptureT<AudioCapture>
     {
-        AudioCapture(bool isMic);
+        AudioCapture();
 
-        void StartCapture();
-        void StopCapture();
+        winrt::Windows::Media::MediaProperties::AudioEncodingProperties AudioEncodingProperties();
+        winrt::Windows::Foundation::IAsyncAction InitializeAsync();
+        winrt::Windows::Foundation::IAsyncAction StartCaptureAsync();
+        winrt::Windows::Foundation::IAsyncAction StopCaptureAsync();
+        com_array<uint8_t> GetNextAudioBytes(uint32_t size);
 
-        winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> AudioFrames();
-
-        winrt::com_ptr<internal::WASAPICapture> m_wasapiCapture;
-        winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> m_audioFrames{ nullptr };
+        winrt::com_ptr<internal::WasapiCapture> m_wasapiCapture;
     };
 }
 

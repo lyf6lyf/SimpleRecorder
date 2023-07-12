@@ -78,7 +78,7 @@ namespace CaptureEncoder
 
                     if (transcode.CanTranscode)
                     {
-                        _audioClient?.Start();
+                        await _audioClient?.StartAsync();
                         await transcode.TranscodeAsync();
                     }
                 }

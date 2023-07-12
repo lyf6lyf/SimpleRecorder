@@ -4,27 +4,34 @@
 
 namespace winrt::Interop::implementation
 {
-    AudioCapture::AudioCapture(bool isMic)
+    AudioCapture::AudioCapture()
     {
-        m_audioFrames = winrt::multi_threaded_vector<winrt::Interop::AudioFrame>();
-        m_wasapiCapture = winrt::make_self<internal::WASAPICapture>(isMic, m_audioFrames);
-        m_wasapiCapture->AsyncInitializeAudioDevice();
+        m_wasapiCapture = winrt::make_self<internal::WasapiCapture>();
     }
 
-    void AudioCapture::StartCapture()
+    winrt::Windows::Media::MediaProperties::AudioEncodingProperties AudioCapture::AudioEncodingProperties()
     {
-        //m_loopbackCapture.StartCaptureAsync(L"recording.wav");
-        m_wasapiCapture->AsyncStartCapture();
+        return m_wasapiCapture->GetAudioEncodingProperties();
     }
-
-    void AudioCapture::StopCapture()
+    winrt::Windows::Foundation::IAsyncAction AudioCapture::InitializeAsync()
     {
-        //m_loopbackCapture.StopCaptureAsync();
-        m_wasapiCapture->AsyncStopCapture();
+        co_await m_wasapiCapture->InitializeAsync();
     }
-
-    winrt::Windows::Foundation::Collections::IVector<winrt::Interop::AudioFrame> AudioCapture::AudioFrames()
+    winrt::Windows::Foundation::IAsyncAction AudioCapture::StartCaptureAsync()
     {
-        return m_audioFrames;
+        co_await m_wasapiCapture->StartCaptureAsync();
+    }
+    winrt::Windows::Foundation::IAsyncAction AudioCapture::StopCaptureAsync()
+    {
+        co_await m_wasapiCapture->StopCaptureAsync();
+    }
+    com_array<uint8_t> AudioCapture::GetNextAudioBytes(const uint32_t size)
+    {
+        std::vector<uint8_t> data(size);
+        if(m_wasapiCapture->GetNextAudioBytes(data.data(), size))
+        {
+            return winrt::com_array<uint8_t>{data};
+		}
+		return winrt::com_array<uint8_t>{};
     }
 }
