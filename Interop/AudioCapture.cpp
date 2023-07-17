@@ -6,7 +6,7 @@ namespace winrt::Interop::implementation
 {
     AudioCapture::AudioCapture()
     {
-        m_wasapiCapture = winrt::make_self<internal::WasapiCapture>();
+        m_wasapiCapture = winrt::make_self<::WasapiCapture>();
     }
 
     winrt::Windows::Media::MediaProperties::AudioEncodingProperties AudioCapture::AudioEncodingProperties()

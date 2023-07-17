@@ -30,3 +30,5 @@
 #include <mmdeviceapi.h>
 #include <mfapi.h>
 #include <AudioClient.h>
+#include <functional>
+#include <wil/resource.h>

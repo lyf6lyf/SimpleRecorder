@@ -37,13 +37,21 @@ private:
     DWORD m_queueId = 0;
 };
 
+template <class> struct ParentTraits;
+template <class T, class R, class... Args>
+struct ParentTraits<R(T::*)(Args...)>
+{
+	using type = T;
+    using return_type = R;
+    using argument_types = std::tuple<Args...>;
+};
+
 // Helper class for allowing a class to implement multiple versions of
 // IMFAsyncCallback.
 template<auto Callback>
 struct EmbeddedMFAsyncCallback : ::IMFAsyncCallback
 {
-    template<typename Parent> static Parent* parent_finder(HRESULT(Parent::*)(IMFAsyncResult*)) { return nullptr; }
-    using ParentPtr = decltype(parent_finder(Callback));
+    using ParentPtr = std::add_pointer_t<typename ParentTraits<decltype(Callback)>::type>;
 
     ParentPtr m_parent;
     DWORD m_queueId = 0;
