@@ -15,7 +15,7 @@ namespace winrt::Interop::implementation
         winrt::Windows::Foundation::IAsyncAction StopCaptureAsync();
         com_array<uint8_t> GetNextAudioBytes(uint32_t size);
 
-        winrt::com_ptr<::WasapiCapture> m_wasapiCapture;
+        winrt::com_ptr<WasapiCapture> m_wasapiCapture;
     };
 }
 

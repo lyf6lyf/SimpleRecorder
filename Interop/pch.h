@@ -26,7 +26,7 @@
 #include <winrt/Windows.UI.Xaml.Shapes.h>
 #include <forward_list>
 
-
+#include <deque>
 #include <mmdeviceapi.h>
 #include <mfapi.h>
 #include <AudioClient.h>
