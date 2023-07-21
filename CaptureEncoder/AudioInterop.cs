@@ -52,8 +52,6 @@ namespace CaptureEncoder
             _startTimestamp = TimeSpan.Zero;
             _wasapiLoopbackCapture?.StartCapture();
             _audioGraph.Start();
-            _loopbackInputNode?.Start();
-            _frameOutputNode.Start();
             _stopwatch.Start();
             _isStarted = true;
         }
@@ -61,11 +59,8 @@ namespace CaptureEncoder
         public void Stop()
         {
             // 结束录制.
-            ShowMessage("录制结束");
+            ShowMessage("Recording end");
             var duration = _stopwatch.Elapsed.TotalSeconds;
-            ShowMessage($"总计音频帧数：{_frameCount}\n用时：{duration:0.0}s\n频率：{_frameCount / duration}");
-            _loopbackInputNode?.Stop();
-            _frameOutputNode?.Stop();
             _audioGraph?.Stop();
             _wasapiLoopbackCapture.StopCapture();
             _isStarted = false;
@@ -84,6 +79,7 @@ namespace CaptureEncoder
             try
             {
                 var frame = _frameOutputNode.GetFrame();
+                ShowMessage($"Frame duration(sec): {frame.Duration.GetValueOrDefault().TotalSeconds}");
                 return frame;
             }
             catch (Exception)
@@ -155,15 +151,14 @@ namespace CaptureEncoder
             await CreateDeviceInputNodeAsync();
             CreateLoopbackFrameInputNode();
 
-            if (_frameOutputNode == null)
-            {
-                return;
-            }
-
-
             var subNode = _audioGraph.CreateSubmixNode();
             _audioFileInputNode.AddOutgoingConnection(subNode);
-            _deviceInputNode.AddOutgoingConnection(subNode);
+
+            if (_deviceInputNode != null)
+            {
+                _deviceInputNode.AddOutgoingConnection(subNode);
+            }
+            
             _loopbackInputNode.AddOutgoingConnection(subNode);
             _submixNode = subNode;
             subNode.AddOutgoingConnection(_frameOutputNode);
@@ -177,7 +172,6 @@ namespace CaptureEncoder
         private void CreateLoopbackFrameInputNode()
         {
             _loopbackInputNode = _audioGraph.CreateFrameInputNode();
-            _loopbackInputNode.Stop();
             _loopbackInputNode.QuantumStarted += OnLoopbackInputNodeQuantumStarted;
         }
 
@@ -192,15 +186,11 @@ namespace CaptureEncoder
 
             _audioFileInputNode = result.FileInputNode;
             _audioFileInputNode.LoopCount = null;
-            _audioFileInputNode.Start();
         }
 
         private async Task CreateDeviceInputNodeAsync()
         {
-            var devices = await DeviceInformation.FindAllAsync(DeviceClass.AudioCapture);
-            var firstDevice = devices.FirstOrDefault();
-            var encoding = AudioEncodingProperties.CreatePcm(48000, 2, 32);
-            var result = await _audioGraph.CreateDeviceInputNodeAsync(Windows.Media.Capture.MediaCategory.Other, encoding, firstDevice).AsTask();
+            var result = await _audioGraph.CreateDeviceInputNodeAsync(Windows.Media.Capture.MediaCategory.Other).AsTask();
             if (result.Status != AudioDeviceNodeCreationStatus.Success)
             {
                 // Cannot create device output node
@@ -270,13 +260,10 @@ namespace CaptureEncoder
 
         unsafe private Windows.Media.AudioFrame GenerateTestEmptyAudioData(uint samples)
         {
-            // 缓冲区大小是 (采样数) * (每个采样的字节数) * (通道数)
             uint bufferSize = samples * (_loopbackInputNode.EncodingProperties.BitsPerSample / 8) * _loopbackInputNode.EncodingProperties.ChannelCount;
 
-            // 创建一个新的 AudioFrame 对象
             var frame = new Windows.Media.AudioFrame(bufferSize);
 
-            // 获取缓冲区的指针
             using (AudioBuffer buffer = frame.LockBuffer(AudioBufferAccessMode.Write))
             using (IMemoryBufferReference reference = buffer.CreateReference())
             {
@@ -284,7 +271,6 @@ namespace CaptureEncoder
                 uint capacityInBytes;
                 ((IMemoryBufferByteAccess)reference).GetBuffer(out dataInBytes, out capacityInBytes);
 
-                // 将缓冲区清零
                 for (int i = 0; i < capacityInBytes; i++)
                 {
                     dataInBytes[i] = 0;
